@@ -5,6 +5,7 @@
      - Parent Hub → Weekly Chores Setup (per-week slate)
      - Parent Hub → Confirm Completed Chores
      - Parent Hub → Record Spending Ledger
+     - Parent Hub → Modify Security PIN
      - Child Home → check-off chores (pending → confirmed)
      - Mom Bucks Ledger (earned + spent transactions)
      - Rewards Ledger screen with per-child view
@@ -14,6 +15,41 @@ var CHILDREN_STORAGE_KEY = 'children';
 var WEEKLY_CHORES_STORAGE_KEY = 'weeklyChores';
 var COMPLETIONS_STORAGE_KEY = 'choreCompletions';
 var LEDGER_STORAGE_KEY = 'momBucksLedger';
+var PARENT_PIN_STORAGE_KEY = 'parentPIN';
+
+var DEFAULT_PARENT_PIN = '1234';
+var PIN_MIN_LENGTH = 4;
+var PIN_MAX_LENGTH = 6;
+
+/* ------------------------------------------------------------
+   PARENT PIN DATA LAYER
+   ------------------------------------------------------------ */
+
+function loadParentPin() {
+    try {
+        var raw = localStorage.getItem(PARENT_PIN_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (typeof parsed === 'string' && /^\d+$/.test(parsed)) {
+                return parsed;
+            }
+            if (parsed && typeof parsed === 'object' && typeof parsed.pin === 'string') {
+                return parsed.pin;
+            }
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    /* Seed default PIN */
+    saveParentPin(DEFAULT_PARENT_PIN);
+    return DEFAULT_PARENT_PIN;
+}
+
+function saveParentPin(pin) {
+    localStorage.setItem(PARENT_PIN_STORAGE_KEY, JSON.stringify(pin));
+}
+
+var parentPin = loadParentPin();
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -183,18 +219,6 @@ function getCompletionById(id) {
 
 /* ------------------------------------------------------------
    MOM BUCKS LEDGER DATA LAYER
-   Each transaction:
-   {
-     id: "ledger_...",
-     childId: "...",
-     type: "earned" | "spent",
-     amount: 10,                     // always positive; direction from type
-     description: "Clean bedroom",
-     choreId: "..." | null,
-     weekStart: "YYYY-MM-DD" | null,
-     date: "YYYY-MM-DD",
-     completionId: "..." | null      // used to prevent duplicate awards
-   }
    ------------------------------------------------------------ */
 
 function loadLedger() {
@@ -326,6 +350,8 @@ function switchView(viewName, btnElement) {
             target = createConfirmChoresScreen();
         } else if (viewName === 'spending-ledger') {
             target = createSpendingLedgerScreen();
+        } else if (viewName === 'modify-pin') {
+            target = createModifyPinScreen();
         }
     }
 
@@ -351,6 +377,8 @@ function switchView(viewName, btnElement) {
         renderConfirmChoresScreen();
     } else if (viewName === 'spending-ledger') {
         renderSpendingLedgerScreen();
+    } else if (viewName === 'modify-pin') {
+        renderModifyPinScreen();
     } else if (viewName === 'parent-area') {
         renderParentHubBackButton();
     } else if (viewName === 'child-home') {
@@ -370,7 +398,8 @@ function updateNavForView(viewName) {
         'children': 'nav-parent',
         'chore-setup': 'nav-parent',
         'confirm-chores': 'nav-parent',
-        'spending-ledger': 'nav-parent'
+        'spending-ledger': 'nav-parent',
+        'modify-pin': 'nav-parent'
     };
     var navItems = document.querySelectorAll('.nav-item');
     for (var i = 0; i < navItems.length; i++) {
@@ -1503,11 +1532,8 @@ function confirmCompletion(completionId) {
    RECORD SPENDING LEDGER SCREEN
    ------------------------------------------------------------ */
 
-/* Currently selected child on the Spending Ledger screen. */
 var spendingViewChildId = null;
-
-/* Chore form / confirmation state for spending. */
-var spendingFormState = null; /* null | 'remove' */
+var spendingFormState = null;
 var spendingFormRemoveId = null;
 
 function createSpendingLedgerScreen() {
@@ -1543,7 +1569,6 @@ function renderSpendingLedgerScreen() {
 
     var html = '';
 
-    /* Back button — same pattern as other Parent Hub screens */
     html += childrenBackButtonHtml();
 
     html +=
@@ -1561,7 +1586,6 @@ function renderSpendingLedgerScreen() {
         return;
     }
 
-    /* Child selector */
     if (childrenData.length > 1) {
         html +=
             '<div class="context-input-card" style="margin-bottom:12px;">' +
@@ -1584,7 +1608,6 @@ function renderSpendingLedgerScreen() {
         return;
     }
 
-    /* Balance card */
     html +=
         '<div class="ui-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
             '<div style="display:flex; align-items:center; gap:12px;">' +
@@ -1603,7 +1626,6 @@ function renderSpendingLedgerScreen() {
             '<div style="font-weight:700; font-size:1.4rem;">' + child.momBucks + '</div>' +
         '</div>';
 
-    /* Remove confirmation state */
     if (spendingFormState === 'remove' && spendingFormRemoveId) {
         var txToRemove = null;
         for (var t = 0; t < ledgerData.length; t++) {
@@ -1641,7 +1663,6 @@ function renderSpendingLedgerScreen() {
         }
     }
 
-    /* Spend form (always visible unless remove confirm is active) */
     if (spendingFormState !== 'remove') {
         html +=
             '<div class="ui-card" style="margin-bottom:16px;">' +
@@ -1671,7 +1692,6 @@ function renderSpendingLedgerScreen() {
             '</div>';
     }
 
-    /* History */
     html +=
         '<div class="section-title" style="margin-top:20px;">' +
             '<span>Transaction History</span>' +
@@ -1717,7 +1737,6 @@ function renderSpendingLedgerScreen() {
 
 function handleSpendingChildChange(childId) {
     spendingViewChildId = childId;
-    /* Reset any open form state when switching children */
     spendingFormState = null;
     spendingFormRemoveId = null;
     renderSpendingLedgerScreen();
@@ -1755,11 +1774,9 @@ function saveSpending() {
         return;
     }
 
-    /* Deduct from child balance */
     child.momBucks = (child.momBucks || 0) - amount;
     saveChildren(childrenData);
 
-    /* Create ledger transaction */
     ledgerData.push({
         id: generateLedgerId(),
         childId: child.id,
@@ -1803,7 +1820,6 @@ function confirmRemoveSpending(id) {
         return;
     }
 
-    /* Refund the child's balance if this was a spent transaction */
     if (tx.type === 'spent') {
         var child = getChildById(tx.childId);
         if (child) {
@@ -1811,7 +1827,6 @@ function confirmRemoveSpending(id) {
             saveChildren(childrenData);
         }
     } else if (tx.type === 'earned') {
-        /* Remove an earned entry: also subtract from balance */
         var childE = getChildById(tx.childId);
         if (childE) {
             childE.momBucks = (childE.momBucks || 0) - tx.amount;
@@ -1831,6 +1846,143 @@ function confirmRemoveSpending(id) {
     spendingFormState = null;
     spendingFormRemoveId = null;
     renderSpendingLedgerScreen();
+}
+
+/* ------------------------------------------------------------
+   MODIFY SECURITY PIN SCREEN
+   ------------------------------------------------------------ */
+
+var modifyPinMessage = null; /* { type: 'success' | 'error', text: '...' } */
+
+function createModifyPinScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-modify-pin';
+    screen.className = 'app-screen';
+    screen.innerHTML = '<div id="modify-pin-root"></div>';
+
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function renderModifyPinScreen() {
+    var root = document.getElementById('modify-pin-root');
+    if (!root) return;
+
+    var html = '';
+
+    html += childrenBackButtonHtml();
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Modify Security PIN</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Success / error banner */
+    if (modifyPinMessage) {
+        var bannerColor = modifyPinMessage.type === 'success'
+            ? 'var(--color-green)'
+            : 'var(--color-coral)';
+        var bannerBorder = modifyPinMessage.type === 'success'
+            ? 'var(--color-green)'
+            : 'var(--color-coral)';
+
+        html +=
+            '<div class="ui-card" style="margin-bottom:16px; border:2px solid ' + bannerBorder + '; ' +
+                'color:' + bannerColor + '; font-weight:700; text-align:center;">' +
+                escapeHtml(modifyPinMessage.text) +
+            '</div>';
+    }
+
+    html +=
+        '<div class="ui-card" style="margin-bottom:16px;">' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Current PIN</label>' +
+                '<input id="pin-form-current" type="password" inputmode="numeric" maxlength="' + PIN_MAX_LENGTH + '" ' +
+                    'placeholder="Enter current PIN" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>New PIN</label>' +
+                '<input id="pin-form-new" type="password" inputmode="numeric" maxlength="' + PIN_MAX_LENGTH + '" ' +
+                    'placeholder="' + PIN_MIN_LENGTH + '–' + PIN_MAX_LENGTH + ' digits" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Confirm New PIN</label>' +
+                '<input id="pin-form-confirm" type="password" inputmode="numeric" maxlength="' + PIN_MAX_LENGTH + '" ' +
+                    'placeholder="Re-enter new PIN" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div id="pin-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+                'font-weight:600; margin-bottom:10px;"></div>' +
+
+            '<button class="btn-add-chore" style="margin-top:0; width:100%; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="savePin()">Save PIN</button>' +
+
+        '</div>';
+
+    root.innerHTML = html;
+}
+
+function savePin() {
+    var currentInput = document.getElementById('pin-form-current');
+    var newInput = document.getElementById('pin-form-new');
+    var confirmInput = document.getElementById('pin-form-confirm');
+
+    var current = currentInput ? currentInput.value.trim() : '';
+    var newPin = newInput ? newInput.value.trim() : '';
+    var confirmPin = confirmInput ? confirmInput.value.trim() : '';
+
+    /* Clear previous message */
+    modifyPinMessage = null;
+
+    if (current === '' || newPin === '' || confirmPin === '') {
+        showFormError('pin-form-error', 'All fields are required.');
+        return;
+    }
+
+    if (!/^\d+$/.test(current) || !/^\d+$/.test(newPin) || !/^\d+$/.test(confirmPin)) {
+        showFormError('pin-form-error', 'PIN must contain only digits.');
+        return;
+    }
+
+    if (current !== parentPin) {
+        showFormError('pin-form-error', 'Current PIN is incorrect.');
+        return;
+    }
+
+    if (newPin.length < PIN_MIN_LENGTH || newPin.length > PIN_MAX_LENGTH) {
+        showFormError('pin-form-error', 'New PIN must be ' + PIN_MIN_LENGTH + '–' + PIN_MAX_LENGTH + ' digits.');
+        return;
+    }
+
+    if (newPin !== confirmPin) {
+        showFormError('pin-form-error', 'New PIN and confirmation do not match.');
+        return;
+    }
+
+    if (newPin === current) {
+        showFormError('pin-form-error', 'New PIN must be different from current PIN.');
+        return;
+    }
+
+    /* Persist */
+    parentPin = newPin;
+    saveParentPin(parentPin);
+
+    modifyPinMessage = { type: 'success', text: 'PIN updated successfully.' };
+    renderModifyPinScreen();
 }
 
 /* ------------------------------------------------------------
@@ -2003,6 +2155,7 @@ document.addEventListener('DOMContentLoaded', function () {
     weeklyChoresData = loadWeeklyChores();
     completionsData = loadCompletions();
     ledgerData = loadLedger();
+    parentPin = loadParentPin();
 
     updateParentMenuChildCount();
 
@@ -2037,6 +2190,14 @@ document.addEventListener('DOMContentLoaded', function () {
         if (label.textContent.indexOf('Record Spending Ledger') !== -1) {
             menuItems[i].onclick = function () {
                 switchView('spending-ledger', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
+
+        if (label.textContent.indexOf('Modify Security PIN') !== -1) {
+            menuItems[i].onclick = function () {
+                modifyPinMessage = null;
+                switchView('modify-pin', null);
             };
             menuItems[i].style.cursor = 'pointer';
         }
