@@ -3188,3 +3188,17 @@ document.addEventListener('DOMContentLoaded', function () {
     renderRewardsLedger();
     renderCalendarScreen();
 });
+/* ------------------------------------------------------------
+   PWA — register the service worker
+   ------------------------------------------------------------ */
+
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        /* Relative path so registration works under GitHub Pages
+           subpaths without hardcoding the repo name. */
+        navigator.serviceWorker.register('service-worker.js').catch(function () {
+            /* Registration failed — the app continues to work normally
+               without offline caching. Intentionally silent. */
+        });
+    });
+}
