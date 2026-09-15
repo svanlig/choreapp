@@ -3,11 +3,14 @@
    Features implemented:
      - Parent Hub → Children management
      - Parent Hub → Weekly Chores Setup (per-week slate)
+     - Parent Hub → Confirm Completed Chores
+     - Child Home → check-off chores (pending → confirmed)
      - In-page Back navigation for Parent Hub & Children
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
 var WEEKLY_CHORES_STORAGE_KEY = 'weeklyChores';
+var COMPLETIONS_STORAGE_KEY = 'choreCompletions';
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -19,6 +22,10 @@ function generateId() {
 
 function generateChoreId() {
     return 'chore_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function generateCompletionId() {
+    return 'completion_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
 function loadChildren() {
@@ -70,15 +77,6 @@ function isDuplicateName(name, excludeId) {
 
 /* ------------------------------------------------------------
    WEEKLY CHORES DATA LAYER
-   Structure:
-   [
-     {
-       weekStart: "YYYY-MM-DD",
-       weekContext: "string",
-       chores: [ { id, name, momBucks, assignedChildren: [] } ]
-     },
-     ...
-   ]
    ------------------------------------------------------------ */
 
 function loadWeeklyChores() {
@@ -137,6 +135,55 @@ function getChildNamesForIds(ids) {
 }
 
 /* ------------------------------------------------------------
+   COMPLETIONS DATA LAYER
+   Each completion:
+   {
+     id: "completion_...",
+     choreId: "...",
+     childId: "...",
+     weekStart: "YYYY-MM-DD",
+     status: "pending" | "confirmed",
+     momBucks: 10
+   }
+   ------------------------------------------------------------ */
+
+function loadCompletions() {
+    try {
+        var raw = localStorage.getItem(COMPLETIONS_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    return [];
+}
+
+function saveCompletions(list) {
+    localStorage.setItem(COMPLETIONS_STORAGE_KEY, JSON.stringify(list));
+}
+
+var completionsData = loadCompletions();
+
+function getCompletion(choreId, childId, weekStart) {
+    for (var i = 0; i < completionsData.length; i++) {
+        var c = completionsData[i];
+        if (c.choreId === choreId && c.childId === childId && c.weekStart === weekStart) {
+            return c;
+        }
+    }
+    return null;
+}
+
+function getCompletionById(id) {
+    for (var i = 0; i < completionsData.length; i++) {
+        if (completionsData[i].id === id) return completionsData[i];
+    }
+    return null;
+}
+
+/* ------------------------------------------------------------
    DATE HELPERS
    ------------------------------------------------------------ */
 
@@ -180,6 +227,23 @@ function formatPrettyShort(date) {
     return MONTH_NAMES[date.getMonth()] + ' ' + date.getDate();
 }
 
+function formatWeekLabel(weekStart) {
+    var monday = parseYmd(weekStart);
+    var sunday = addDays(monday, 6);
+    return 'Week of ' + formatPrettyShort(monday) + ' – ' + formatPrettyShort(sunday) + ', ' + sunday.getFullYear();
+}
+
+function parseYmd(ymd) {
+    if (!ymd || typeof ymd !== 'string') return new Date();
+    var parts = ymd.split('-');
+    if (parts.length !== 3) return new Date();
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    var d = parseInt(parts[2], 10);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date();
+    return new Date(y, m, d);
+}
+
 /* ------------------------------------------------------------
    EXISTING PROTOTYPE: VIEW SWITCHING
    ------------------------------------------------------------ */
@@ -198,6 +262,8 @@ function switchView(viewName, btnElement) {
             target = createChildrenScreen();
         } else if (viewName === 'chore-setup') {
             target = createChoreSetupScreen();
+        } else if (viewName === 'confirm-chores') {
+            target = createConfirmChoresScreen();
         }
     }
 
@@ -219,8 +285,12 @@ function switchView(viewName, btnElement) {
         renderChildrenList();
     } else if (viewName === 'chore-setup') {
         renderChoreSetupScreen();
+    } else if (viewName === 'confirm-chores') {
+        renderConfirmChoresScreen();
     } else if (viewName === 'parent-area') {
         renderParentHubBackButton();
+    } else if (viewName === 'child-home') {
+        renderChildHome();
     }
 }
 
@@ -232,7 +302,8 @@ function updateNavForView(viewName) {
         'parent-pin': 'nav-parent',
         'parent-area': 'nav-parent',
         'children': 'nav-parent',
-        'chore-setup': 'nav-parent'
+        'chore-setup': 'nav-parent',
+        'confirm-chores': 'nav-parent'
     };
     var navItems = document.querySelectorAll('.nav-item');
     for (var i = 0; i < navItems.length; i++) {
@@ -565,6 +636,17 @@ function confirmRemoveChild(id) {
     }
     childrenData = newData;
     saveChildren(childrenData);
+
+    /* Also clear any completions belonging to this child */
+    var newCompletions = [];
+    for (var j = 0; j < completionsData.length; j++) {
+        if (completionsData[j].childId !== id) {
+            newCompletions.push(completionsData[j]);
+        }
+    }
+    completionsData = newCompletions;
+    saveCompletions(completionsData);
+
     renderChildrenList();
     updateParentMenuChildCount();
 }
@@ -733,17 +815,6 @@ function renderChoreSetupScreen() {
 /* ------------------------------------------------------------
    WEEK SELECTION HANDLERS
    ------------------------------------------------------------ */
-
-function parseYmd(ymd) {
-    if (!ymd || typeof ymd !== 'string') return new Date();
-    var parts = ymd.split('-');
-    if (parts.length !== 3) return new Date();
-    var y = parseInt(parts[0], 10);
-    var m = parseInt(parts[1], 10) - 1;
-    var d = parseInt(parts[2], 10);
-    if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date();
-    return new Date(y, m, d);
-}
 
 function handleWeekDateChange(value) {
     if (!value) return;
@@ -995,9 +1066,362 @@ function confirmRemoveChore(id) {
     entry.chores = newChores;
     saveWeeklyChores(weeklyChoresData);
 
+    /* Also remove any completions tied to this chore in this week */
+    var newCompletions = [];
+    for (var j = 0; j < completionsData.length; j++) {
+        var c = completionsData[j];
+        if (!(c.choreId === id && c.weekStart === activeWeekStart)) {
+            newCompletions.push(c);
+        }
+    }
+    completionsData = newCompletions;
+    saveCompletions(completionsData);
+
     choreFormState = null;
     choreFormEditId = null;
     renderChoreSetupScreen();
+}
+
+/* ------------------------------------------------------------
+   CHILD HOME — CHECK-OFF CHORES
+   ------------------------------------------------------------ */
+
+/* Child currently being viewed on Child Home. Defaults to first child. */
+var activeChildId = null;
+
+function getActiveChild() {
+    if (activeChildId) {
+        var c = getChildById(activeChildId);
+        if (c) return c;
+    }
+    if (childrenData.length > 0) {
+        activeChildId = childrenData[0].id;
+        return childrenData[0];
+    }
+    return null;
+}
+
+function renderChildHome() {
+    var existing = document.getElementById('screen-child-home');
+    if (!existing) return;
+
+    var child = getActiveChild();
+
+    var html = '';
+
+    /* Child picker (if more than one child) */
+    if (childrenData.length > 1) {
+        html +=
+            '<div class="context-input-card" style="margin-bottom:12px;">' +
+                '<label>Viewing as</label>' +
+                '<select id="child-home-picker" onchange="handleChildHomePickerChange(this.value)" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;">';
+        for (var i = 0; i < childrenData.length; i++) {
+            var c = childrenData[i];
+            var sel = (child && c.id === child.id) ? ' selected' : '';
+            html += '<option value="' + c.id + '"' + sel + '>' + escapeHtml(c.name) + '</option>';
+        }
+        html +=
+                '</select>' +
+            '</div>';
+    }
+
+    if (!child) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No children yet. Ask a parent to add a child profile.</p>' +
+            '</div>';
+        existing.innerHTML = html;
+        return;
+    }
+
+    /* Balance display for this child */
+    html +=
+        '<div class="ui-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
+            '<div style="display:flex; align-items:center; gap:12px;">' +
+                '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                    escapeHtml(child.avatar) +
+                '</div>' +
+                '<div>' +
+                    '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                        escapeHtml(child.name) +
+                    '</div>' +
+                    '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:500;">' +
+                        'Mom Bucks Balance' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div style="font-weight:700; font-size:1.2rem;">' + child.momBucks + '</div>' +
+        '</div>';
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Today\'s Plan</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Get current week's chores */
+    var entry = getWeekEntry(activeWeekStart);
+    var chores = entry && entry.chores ? entry.chores : [];
+
+    /* Filter chores assigned to this child */
+    var assigned = [];
+    for (var k = 0; k < chores.length; k++) {
+        if (Array.isArray(chores[k].assignedChildren) &&
+            chores[k].assignedChildren.indexOf(child.id) !== -1) {
+            assigned.push(chores[k]);
+        }
+    }
+
+    if (assigned.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No chores assigned for this week.</p>' +
+            '</div>';
+        existing.innerHTML = html;
+        return;
+    }
+
+    /* Render each assigned chore */
+    for (var m = 0; m < assigned.length; m++) {
+        var chore = assigned[m];
+        var completion = getCompletion(chore.id, child.id, activeWeekStart);
+
+        var statusClass = '';
+        var checkboxContent = '';
+        var statusPill = '';
+        var toggleHandler = '';
+
+        if (completion && completion.status === 'confirmed') {
+            statusClass = 'state-confirmed';
+            checkboxContent = '✓';
+            statusPill = '<span class="status-pill confirmed">Confirmed</span>';
+            toggleHandler = ''; /* no toggling after confirmation */
+        } else if (completion && completion.status === 'pending') {
+            statusClass = 'state-waiting';
+            checkboxContent = '•••';
+            statusPill = '<span class="status-pill waiting">Waiting for Mom</span>';
+            toggleHandler = 'onclick="uncheckChore(\'' + chore.id + '\')"';
+        } else {
+            statusClass = '';
+            checkboxContent = '';
+            statusPill = '';
+            toggleHandler = 'onclick="checkChore(\'' + chore.id + '\')"';
+        }
+
+        html +=
+            '<div class="chore-item ' + statusClass + '">' +
+                '<div class="chore-details">' +
+                    '<h3>' + escapeHtml(chore.name) + '</h3>' +
+                    '<p>This week · ' + chore.momBucks + ' Mom Bucks</p>' +
+                    statusPill +
+                '</div>' +
+                '<div class="chore-checkbox" ' + toggleHandler + '>' + checkboxContent + '</div>' +
+            '</div>';
+    }
+
+    existing.innerHTML = html;
+}
+
+function handleChildHomePickerChange(childId) {
+    activeChildId = childId;
+    renderChildHome();
+}
+
+function checkChore(choreId) {
+    var child = getActiveChild();
+    if (!child) return;
+
+    var entry = getWeekEntry(activeWeekStart);
+    if (!entry) return;
+
+    var chore = null;
+    for (var i = 0; i < entry.chores.length; i++) {
+        if (entry.chores[i].id === choreId) {
+            chore = entry.chores[i];
+            break;
+        }
+    }
+    if (!chore) return;
+
+    var existing = getCompletion(choreId, child.id, activeWeekStart);
+    if (existing) {
+        /* Already confirmed — never downgrade */
+        if (existing.status === 'confirmed') return;
+        /* Already pending — nothing to do */
+        return;
+    }
+
+    completionsData.push({
+        id: generateCompletionId(),
+        choreId: choreId,
+        childId: child.id,
+        weekStart: activeWeekStart,
+        status: 'pending',
+        momBucks: chore.momBucks
+    });
+    saveCompletions(completionsData);
+
+    renderChildHome();
+}
+
+function uncheckChore(choreId) {
+    var child = getActiveChild();
+    if (!child) return;
+
+    var newCompletions = [];
+    for (var i = 0; i < completionsData.length; i++) {
+        var c = completionsData[i];
+        var match = (c.choreId === choreId && c.childId === child.id && c.weekStart === activeWeekStart);
+        if (match && c.status === 'pending') {
+            /* Remove the pending completion */
+            continue;
+        }
+        newCompletions.push(c);
+    }
+    completionsData = newCompletions;
+    saveCompletions(completionsData);
+
+    renderChildHome();
+}
+
+/* ------------------------------------------------------------
+   CONFIRM COMPLETED CHORES SCREEN
+   ------------------------------------------------------------ */
+
+function createConfirmChoresScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-confirm-chores';
+    screen.className = 'app-screen';
+    screen.innerHTML = '<div id="confirm-chores-root"></div>';
+
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function renderConfirmChoresScreen() {
+    var root = document.getElementById('confirm-chores-root');
+    if (!root) return;
+
+    var html = '';
+
+    html += childrenBackButtonHtml();
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Confirm Completed Chores</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Collect all pending completions, newest first */
+    var pending = [];
+    for (var i = 0; i < completionsData.length; i++) {
+        if (completionsData[i].status === 'pending') {
+            pending.push(completionsData[i]);
+        }
+    }
+
+    if (pending.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No chores are waiting for confirmation.</p>' +
+            '</div>';
+        root.innerHTML = html;
+        return;
+    }
+
+    /* Sort by weekStart ascending, then by chore name */
+    pending.sort(function (a, b) {
+        if (a.weekStart < b.weekStart) return -1;
+        if (a.weekStart > b.weekStart) return 1;
+        return 0;
+    });
+
+    for (var j = 0; j < pending.length; j++) {
+        var comp = pending[j];
+        var child = getChildById(comp.childId);
+        var weekEntry = getWeekEntry(comp.weekStart);
+
+        /* Look up the chore name */
+        var choreName = '(chore no longer exists)';
+        if (weekEntry && Array.isArray(weekEntry.chores)) {
+            for (var k = 0; k < weekEntry.chores.length; k++) {
+                if (weekEntry.chores[k].id === comp.choreId) {
+                    choreName = weekEntry.chores[k].name;
+                    break;
+                }
+            }
+        }
+
+        var childName = child ? child.name : '(child no longer exists)';
+        var childAvatar = child ? child.avatar : '?';
+
+        html +=
+            '<div class="ui-card" style="margin-bottom:12px;">' +
+                '<div style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">' +
+                    '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                        escapeHtml(childAvatar) +
+                    '</div>' +
+                    '<div style="flex:1; min-width:0;">' +
+                        '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                            escapeHtml(childName) +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div style="margin-bottom:8px;">' +
+                    '<div style="font-weight:700; font-size:0.95rem;">' +
+                        escapeHtml(choreName) +
+                    '</div>' +
+                    '<div style="font-size:0.9rem; font-weight:700; color:var(--color-green); margin-top:2px;">' +
+                        comp.momBucks + ' Mom Bucks' +
+                    '</div>' +
+                    '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:600; margin-top:4px;">' +
+                        escapeHtml(formatWeekLabel(comp.weekStart)) +
+                    '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:10px;">' +
+                    '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-green); ' +
+                        'border-color:var(--color-green); color:#fff;" onclick="confirmCompletion(\'' + comp.id + '\')">Confirm</button>' +
+                '</div>' +
+            '</div>';
+    }
+
+    root.innerHTML = html;
+}
+
+/* ------------------------------------------------------------
+   CONFIRM COMPLETION — AWARD MOM BUCKS
+   ------------------------------------------------------------ */
+
+function confirmCompletion(completionId) {
+    var comp = getCompletionById(completionId);
+    if (!comp) return;
+
+    /* Prevent double-award */
+    if (comp.status === 'confirmed') return;
+
+    var child = getChildById(comp.childId);
+    if (!child) {
+        /* Still mark confirmed so it disappears from the pending list */
+        comp.status = 'confirmed';
+        saveCompletions(completionsData);
+        renderConfirmChoresScreen();
+        return;
+    }
+
+    /* Award Mom Bucks */
+    child.momBucks = (child.momBucks || 0) + comp.momBucks;
+    saveChildren(childrenData);
+
+    /* Mark confirmed */
+    comp.status = 'confirmed';
+    saveCompletions(completionsData);
+
+    renderConfirmChoresScreen();
 }
 
 /* ------------------------------------------------------------
@@ -1048,6 +1472,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     childrenData = loadChildren();
     weeklyChoresData = loadWeeklyChores();
+    completionsData = loadCompletions();
 
     updateParentMenuChildCount();
 
@@ -1071,7 +1496,17 @@ document.addEventListener('DOMContentLoaded', function () {
             };
             menuItems[i].style.cursor = 'pointer';
         }
+
+        if (label.textContent.indexOf('Confirm Completed Chores') !== -1) {
+            menuItems[i].onclick = function () {
+                switchView('confirm-chores', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
     }
 
     renderParentHubBackButton();
+
+    /* Render Child Home so assigned chores appear on first load */
+    renderChildHome();
 });
