@@ -273,6 +273,16 @@ function getChildNamesForIds(ids) {
 
 /* ------------------------------------------------------------
    COMPLETIONS DATA LAYER
+   Each completion:
+   {
+     id: "completion_...",
+     choreId: "...",
+     childId: "...",
+     weekStart: "YYYY-MM-DD",   // the Monday of the week the chore belongs to
+     date: "YYYY-MM-DD",        // the day this completion is for
+     status: "pending" | "confirmed",
+     momBucks: 10
+   }
    ------------------------------------------------------------ */
 
 function loadCompletions() {
@@ -294,10 +304,11 @@ function saveCompletions(list) {
 
 var completionsData = loadCompletions();
 
-function getCompletion(choreId, childId, weekStart) {
+/* Look up a completion for a specific child + chore + day. */
+function getCompletion(choreId, childId, dateYmd) {
     for (var i = 0; i < completionsData.length; i++) {
         var c = completionsData[i];
-        if (c.choreId === choreId && c.childId === childId && c.weekStart === weekStart) {
+        if (c.choreId === choreId && c.childId === childId && c.date === dateYmd) {
             return c;
         }
     }
@@ -433,6 +444,11 @@ function formatPrettyTime(hhmm) {
     var h12 = h % 12;
     if (h12 === 0) h12 = 12;
     return h12 + ':' + pad2(mn) + ' ' + ampm;
+}
+
+/* Today as YYYY-MM-DD. Used to key completions per-day. */
+function todayYmd() {
+    return formatYmd(new Date());
 }
 
 /* ------------------------------------------------------------
@@ -659,13 +675,9 @@ function goBackToParentHub() {
    BACKUP & RESTORE SCREEN
    ------------------------------------------------------------ */
 
-/* UI state for Backup & Restore */
 var backupRestoreState = {
-    /* null | 'confirm-restore' */
     mode: null,
-    /* Validated backup payload waiting for user confirmation */
     pendingPayload: null,
-    /* { type: 'error' | 'success' | 'info', text: string } */
     message: null
 };
 
@@ -688,7 +700,6 @@ function renderBackupRestoreScreen() {
 
     var html = '';
 
-    /* Back to Parent Hub (uses the shared helper for consistency) */
     html +=
         '<div class="control-pill" style="display:inline-block; margin-bottom:12px; cursor:pointer;" ' +
             'onclick="goBackToParentHub()">← Back to Parent Hub</div>';
@@ -699,7 +710,6 @@ function renderBackupRestoreScreen() {
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* Message banner */
     if (backupRestoreState.message) {
         var msgType = backupRestoreState.message.type;
         var bannerColor = 'var(--color-coral)';
@@ -719,7 +729,6 @@ function renderBackupRestoreScreen() {
             '</div>';
     }
 
-    /* Explanation */
     html +=
         '<div class="ui-card" style="margin-bottom:16px;">' +
             '<div style="font-weight:700; font-size:0.95rem; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.3px;">' +
@@ -731,7 +740,6 @@ function renderBackupRestoreScreen() {
             '</div>' +
         '</div>';
 
-    /* Restore confirmation state */
     if (backupRestoreState.mode === 'confirm-restore' && backupRestoreState.pendingPayload) {
         var meta = backupRestoreState.pendingPayload;
 
@@ -756,7 +764,6 @@ function renderBackupRestoreScreen() {
             '</div>';
     }
 
-    /* Action buttons */
     if (backupRestoreState.mode !== 'confirm-restore') {
         html +=
             '<button class="btn-add-chore" style="margin-top:0; width:100%; background:var(--color-blue); ' +
@@ -767,12 +774,9 @@ function renderBackupRestoreScreen() {
                 'background:transparent; border-style:dashed;" ' +
                 'onclick="triggerRestoreFilePicker()">Restore Backup</button>' +
 
-            /* Hidden file input for the restore flow */
             '<input id="backup-restore-file-input" type="file" accept=".json,application/json" ' +
                 'style="display:none;" onchange="handleRestoreFileSelected(event)" />';
     } else {
-        /* When confirming, keep the file input in the DOM so the flow
-           can be re-triggered if the user cancels. */
         html +=
             '<input id="backup-restore-file-input" type="file" accept=".json,application/json" ' +
                 'style="display:none;" onchange="handleRestoreFileSelected(event)" />';
@@ -780,10 +784,6 @@ function renderBackupRestoreScreen() {
 
     root.innerHTML = html;
 }
-
-/* ------------------------------------------------------------
-   BACKUP
-   ------------------------------------------------------------ */
 
 function createBackup() {
     var payload = {
@@ -793,8 +793,6 @@ function createBackup() {
         data: {}
     };
 
-    /* Snapshot every key as its raw localStorage string so we never
-       mutate the live values or lose precision. */
     for (var i = 0; i < APP_STORAGE_KEYS.length; i++) {
         var key = APP_STORAGE_KEYS[i];
         var raw = null;
@@ -831,7 +829,6 @@ function createBackup() {
     document.body.appendChild(a);
     a.click();
 
-    /* Defer cleanup so the click can complete */
     setTimeout(function () {
         try {
             document.body.removeChild(a);
@@ -848,14 +845,9 @@ function createBackup() {
     renderBackupRestoreScreen();
 }
 
-/* ------------------------------------------------------------
-   RESTORE — FILE PICKER
-   ------------------------------------------------------------ */
-
 function triggerRestoreFilePicker() {
     var input = document.getElementById('backup-restore-file-input');
     if (!input) return;
-    /* Reset so the same file can be re-selected if needed */
     input.value = '';
     input.click();
 }
@@ -947,8 +939,6 @@ function processRestorePayload(text) {
         return;
     }
 
-    /* Require at least one recognised key so a file that merely happens
-       to have {app, version, data} doesn't get treated as valid. */
     var recognised = 0;
     for (var i = 0; i < APP_STORAGE_KEYS.length; i++) {
         var k = APP_STORAGE_KEYS[i];
@@ -965,7 +955,6 @@ function processRestorePayload(text) {
         return;
     }
 
-    /* Validate each present value is a string or null (we store raw JSON strings). */
     for (var j = 0; j < APP_STORAGE_KEYS.length; j++) {
         var key = APP_STORAGE_KEYS[j];
         if (!Object.prototype.hasOwnProperty.call(parsed.data, key)) continue;
@@ -978,9 +967,6 @@ function processRestorePayload(text) {
             renderBackupRestoreScreen();
             return;
         }
-        /* If the string is non-null, it should itself parse as JSON
-           (since the app always writes JSON), except for the PIN which
-           is a JSON-encoded string. Either way JSON.parse should succeed. */
         if (v !== null) {
             try {
                 JSON.parse(v);
@@ -1049,9 +1035,6 @@ function confirmRestoreBackup() {
         return;
     }
 
-    /* Reload so every screen picks up the restored data. We can't show
-       an in-page success message because the page is about to reload,
-       but this is still silent — no popups are used. */
     window.location.reload();
 }
 
@@ -1101,7 +1084,7 @@ function renderCalendarScreen() {
     var existing = document.getElementById('screen-calendar');
     if (!existing) return;
 
-    var todayYmd = formatYmd(new Date());
+    var today = formatYmd(new Date());
     var html = '';
 
     html +=
@@ -1165,7 +1148,7 @@ function renderCalendarScreen() {
         var cellDate = cells[i];
         var cellYmd = formatYmd(cellDate);
         var inMonth = (cellDate.getMonth() === calendarViewMonth && cellDate.getFullYear() === calendarViewYear);
-        var isToday = (cellYmd === todayYmd);
+        var isToday = (cellYmd === today);
         var dayEvents = getEventsForDate(cellYmd);
 
         var cellBg = inMonth ? 'var(--color-white)' : '#F0E9E2';
@@ -2241,9 +2224,14 @@ function renderChildHome() {
         return;
     }
 
+    /* Completions are now keyed by day, so this lookup only matches
+       today's completion for each chore. Yesterday's confirmed row
+       does not hide today's row. */
+    var today = todayYmd();
+
     for (var m = 0; m < assigned.length; m++) {
         var chore = assigned[m];
-        var completion = getCompletion(chore.id, child.id, activeWeekStart);
+        var completion = getCompletion(chore.id, child.id, today);
 
         var statusClass = '';
         var checkboxContent = '';
@@ -2302,9 +2290,12 @@ function checkChore(choreId) {
     }
     if (!chore) return;
 
-    var existing = getCompletion(choreId, child.id, activeWeekStart);
+    /* Reject double-completion for the same chore on the same day.
+       (Unchecking only removes a pending row for today, so a confirmed
+       row for today remains and this guard still prevents re-award.) */
+    var today = todayYmd();
+    var existing = getCompletion(choreId, child.id, today);
     if (existing) {
-        if (existing.status === 'confirmed') return;
         return;
     }
 
@@ -2313,6 +2304,7 @@ function checkChore(choreId) {
         choreId: choreId,
         childId: child.id,
         weekStart: activeWeekStart,
+        date: today,
         status: 'pending',
         momBucks: chore.momBucks
     });
@@ -2325,10 +2317,13 @@ function uncheckChore(choreId) {
     var child = getActiveChild();
     if (!child) return;
 
+    /* Only remove today's pending completion. Older confirmed rows
+       remain in history and cannot be undone. */
+    var today = todayYmd();
     var newCompletions = [];
     for (var i = 0; i < completionsData.length; i++) {
         var c = completionsData[i];
-        var match = (c.choreId === choreId && c.childId === child.id && c.weekStart === activeWeekStart);
+        var match = (c.choreId === choreId && c.childId === child.id && c.date === today);
         if (match && c.status === 'pending') {
             continue;
         }
@@ -2387,7 +2382,12 @@ function renderConfirmChoresScreen() {
         return;
     }
 
+    /* Sort by completion date (day), newest first, tiebroken by week start. */
     pending.sort(function (a, b) {
+        var ad = a.date || a.weekStart || '';
+        var bd = b.date || b.weekStart || '';
+        if (ad > bd) return -1;
+        if (ad < bd) return 1;
         if (a.weekStart < b.weekStart) return -1;
         if (a.weekStart > b.weekStart) return 1;
         return 0;
@@ -2410,6 +2410,7 @@ function renderConfirmChoresScreen() {
 
         var childName = child ? child.name : '(child no longer exists)';
         var childAvatar = child ? child.avatar : '?';
+        var dayLabel = comp.date ? formatPrettyDateShort(comp.date) : '';
 
         html +=
             '<div class="ui-card" style="margin-bottom:12px;">' +
@@ -2431,6 +2432,7 @@ function renderConfirmChoresScreen() {
                         comp.momBucks + ' Mom Bucks' +
                     '</div>' +
                     '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:600; margin-top:4px;">' +
+                        (dayLabel ? escapeHtml(dayLabel) + ' · ' : '') +
                         escapeHtml(formatWeekLabel(comp.weekStart)) +
                     '</div>' +
                 '</div>' +
@@ -2448,6 +2450,7 @@ function confirmCompletion(completionId) {
     var comp = getCompletionById(completionId);
     if (!comp) return;
 
+    /* Guard: once confirmed, never award twice. */
     if (comp.status === 'confirmed') return;
 
     var child = getChildById(comp.childId);
@@ -2484,7 +2487,7 @@ function confirmCompletion(completionId) {
             description: description,
             choreId: comp.choreId,
             weekStart: comp.weekStart,
-            date: formatYmd(new Date()),
+            date: comp.date || formatYmd(new Date()),
             completionId: comp.id
         });
         saveLedger(ledgerData);
@@ -3194,11 +3197,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-        /* Relative path so registration works under GitHub Pages
-           subpaths without hardcoding the repo name. */
         navigator.serviceWorker.register('service-worker.js').catch(function () {
-            /* Registration failed — the app continues to work normally
-               without offline caching. Intentionally silent. */
+            /* Registration failure is silently ignored. */
         });
     });
 }
