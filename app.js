@@ -10,7 +10,7 @@
      - Child Home → check-off chores (pending → confirmed)
      - Mom Bucks Ledger (earned + spent transactions)
      - Rewards Ledger screen with per-child view
-     - Calendar → shared family events (view/add/edit/delete)
+     - Calendar → monthly grid + shared family events
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
@@ -120,7 +120,6 @@ function getEventsForDate(ymd) {
     for (var i = 0; i < calendarEvents.length; i++) {
         if (calendarEvents[i].date === ymd) list.push(calendarEvents[i]);
     }
-    /* Sort by time (events with no time come last) */
     list.sort(function (a, b) {
         if (a.time && !b.time) return -1;
         if (!a.time && b.time) return 1;
@@ -131,10 +130,17 @@ function getEventsForDate(ymd) {
     return list;
 }
 
-/* Calendar state */
+/* Calendar UI state */
 var calendarFormState = null;   /* null | 'add' | 'edit' | 'remove' */
 var calendarEditId = null;
 var calendarError = null;
+
+/* Currently displayed month (year + 0-based month) */
+var calendarViewYear = new Date().getFullYear();
+var calendarViewMonth = new Date().getMonth();
+
+/* Pre-filled date for the Add form when a date cell is tapped */
+var calendarPendingDate = '';
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -431,7 +437,6 @@ function formatPrettyTime(hhmm) {
    ------------------------------------------------------------ */
 
 function switchView(viewName, btnElement) {
-    /* PIN GATE */
     if (viewName === 'parent-area' && !parentUnlocked) {
         viewName = 'parent-pin';
         btnElement = null;
@@ -670,18 +675,65 @@ function renderParentHubBackButton() {
 }
 
 /* ------------------------------------------------------------
-   CALENDAR SCREEN — SHARED FAMILY EVENTS
+   CALENDAR SCREEN — MONTHLY GRID + SHARED FAMILY EVENTS
    ------------------------------------------------------------ */
+
+function calendarPrevMonth() {
+    calendarViewMonth -= 1;
+    if (calendarViewMonth < 0) {
+        calendarViewMonth = 11;
+        calendarViewYear -= 1;
+    }
+    /* Close any open form when navigating months */
+    calendarFormState = null;
+    calendarEditId = null;
+    calendarError = null;
+    calendarPendingDate = '';
+    renderCalendarScreen();
+}
+
+function calendarNextMonth() {
+    calendarViewMonth += 1;
+    if (calendarViewMonth > 11) {
+        calendarViewMonth = 0;
+        calendarViewYear += 1;
+    }
+    calendarFormState = null;
+    calendarEditId = null;
+    calendarError = null;
+    calendarPendingDate = '';
+    renderCalendarScreen();
+}
+
+/* Build the month grid cells (6 rows × 7 cols starting Sunday) */
+function buildCalendarGridCells(year, month) {
+    var firstOfMonth = new Date(year, month, 1);
+    var startOffset = firstOfMonth.getDay(); /* 0 = Sunday */
+    var gridStart = addDays(firstOfMonth, -startOffset);
+
+    var cells = [];
+    for (var i = 0; i < 42; i++) {
+        var d = addDays(gridStart, i);
+        cells.push(d);
+    }
+    return cells;
+}
 
 function renderCalendarScreen() {
     var existing = document.getElementById('screen-calendar');
     if (!existing) return;
 
+    var todayYmd = formatYmd(new Date());
     var html = '';
 
+    /* Month navigation header */
     html +=
-        '<div class="section-title">' +
-            '<span>Family Calendar</span>' +
+        '<div class="section-title" style="margin-top:0;">' +
+            '<div style="display:flex; align-items:center; gap:10px;">' +
+                '<div class="control-pill" style="cursor:pointer;" onclick="calendarPrevMonth()">←</div>' +
+                '<span>' + escapeHtml(MONTH_NAMES[calendarViewMonth]) + ' ' + calendarViewYear + '</span>' +
+                '<div class="control-pill" style="cursor:pointer;" onclick="calendarNextMonth()">→</div>' +
+            '</div>' +
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
@@ -694,7 +746,7 @@ function renderCalendarScreen() {
             '</div>';
     }
 
-    /* Add / Edit form */
+    /* Add / Edit / Remove forms (in-page) */
     if (calendarFormState === 'add') {
         html += buildCalendarFormHtml(null);
     } else if (calendarFormState === 'edit' && calendarEditId) {
@@ -715,7 +767,87 @@ function renderCalendarScreen() {
         }
     }
 
-    /* Events list — sorted by date ascending, then by time */
+    /* Monthly calendar grid */
+    html += '<div class="ui-card" style="padding:10px;">';
+
+    /* Day-of-week header row (Sunday → Saturday) */
+    html +=
+        '<div class="calendar-grid" style="grid-template-columns:repeat(7, 1fr); gap:4px; padding:0; ' +
+            'background:transparent; border:none;">' +
+            '<div class="calendar-day-label">S</div>' +
+            '<div class="calendar-day-label">M</div>' +
+            '<div class="calendar-day-label">T</div>' +
+            '<div class="calendar-day-label">W</div>' +
+            '<div class="calendar-day-label">T</div>' +
+            '<div class="calendar-day-label">F</div>' +
+            '<div class="calendar-day-label">S</div>' +
+        '</div>';
+
+    var cells = buildCalendarGridCells(calendarViewYear, calendarViewMonth);
+
+    html +=
+        '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; margin-top:6px;">';
+
+    for (var i = 0; i < cells.length; i++) {
+        var cellDate = cells[i];
+        var cellYmd = formatYmd(cellDate);
+        var inMonth = (cellDate.getMonth() === calendarViewMonth && cellDate.getFullYear() === calendarViewYear);
+        var isToday = (cellYmd === todayYmd);
+        var dayEvents = getEventsForDate(cellYmd);
+
+        /* Cell background / border */
+        var cellBg = inMonth ? 'var(--color-white)' : '#F0E9E2';
+        var cellBorder = isToday ? '2px solid var(--color-blue)' : '1px solid rgba(0,0,0,0.06)';
+        var dayColor = inMonth ? 'var(--text-primary)' : 'var(--text-muted)';
+
+        html +=
+            '<div style="background:' + cellBg + '; border:' + cellBorder + '; border-radius:6px; ' +
+                'min-height:64px; padding:4px; display:flex; flex-direction:column; gap:2px; ' +
+                'overflow:hidden;">';
+
+        /* Day number — clicking opens the Add Event form with this date */
+        html +=
+            '<div style="cursor:pointer; font-size:0.8rem; font-weight:700; color:' + dayColor + '; ' +
+                'text-align:right; line-height:1.1;" ' +
+                'onclick="openAddCalendarEventForDate(\'' + cellYmd + '\')">' +
+                cellDate.getDate() +
+            '</div>';
+
+        /* Events */
+        for (var e = 0; e < dayEvents.length; e++) {
+            var ev = dayEvents[e];
+            var timeLabel = ev.time ? formatPrettyTime(ev.time) : '';
+            var title = ev.name + (timeLabel ? ' · ' + timeLabel : '');
+
+            html +=
+                '<div class="control-pill" ' +
+                    'style="cursor:pointer; font-size:0.65rem; padding:2px 5px; border-radius:6px; ' +
+                    'white-space:nowrap; overflow:hidden; text-overflow:ellipsis; ' +
+                    'background:#E4ECF5; border-color:var(--color-blue);" ' +
+                    'title="' + escapeHtml(title) + '" ' +
+                    'onclick="openEditCalendarEvent(\'' + ev.id + '\')">' +
+                    escapeHtml(ev.name) +
+                '</div>';
+        }
+
+        html += '</div>';
+    }
+
+    html += '</div>'; /* close grid */
+    html += '</div>'; /* close ui-card */
+
+    /* Add Event button */
+    if (calendarFormState !== 'add' && calendarFormState !== 'edit') {
+        html +=
+            '<button class="btn-add-chore" onclick="openAddCalendarEvent()">+ Add Event</button>';
+    }
+
+    /* Upcoming list beneath the grid for readability */
+    html +=
+        '<div class="section-title" style="margin-top:20px;">' +
+            '<span>Upcoming Events</span>' +
+        '</div>';
+
     var sorted = calendarEvents.slice();
     sorted.sort(function (a, b) {
         if (a.date < b.date) return -1;
@@ -727,46 +859,36 @@ function renderCalendarScreen() {
         return 0;
     });
 
-    html +=
-        '<div class="section-title" style="margin-top:16px;">' +
-            '<span>Upcoming Events</span>' +
-        '</div>';
-
     if (sorted.length === 0) {
         html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
-                '<p>No events yet. Tap + Add Event to create one.</p>' +
+                '<p>No events yet. Tap a date or + Add Event to create one.</p>' +
             '</div>';
     } else {
-        for (var i = 0; i < sorted.length; i++) {
-            var ev = sorted[i];
-            var timeLabel = ev.time ? formatPrettyTime(ev.time) : '';
+        for (var s = 0; s < sorted.length; s++) {
+            var sev = sorted[s];
+            var stime = sev.time ? formatPrettyTime(sev.time) : '';
 
             html +=
                 '<div class="ui-card" style="margin-bottom:10px;">' +
                     '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">' +
                         '<div style="flex:1; min-width:0;">' +
                             '<div style="font-weight:700; font-size:1rem;">' +
-                                escapeHtml(ev.name) +
+                                escapeHtml(sev.name) +
                             '</div>' +
                             '<div style="font-size:0.85rem; color:var(--text-muted); font-weight:600; margin-top:4px;">' +
-                                escapeHtml(formatPrettyDateShort(ev.date)) +
-                                (timeLabel ? ' · ' + escapeHtml(timeLabel) : '') +
+                                escapeHtml(formatPrettyDateShort(sev.date)) +
+                                (stime ? ' · ' + escapeHtml(stime) : '') +
                             '</div>' +
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
-                            '<div class="control-pill" onclick="openEditCalendarEvent(\'' + ev.id + '\')">Edit</div>' +
+                            '<div class="control-pill" onclick="openEditCalendarEvent(\'' + sev.id + '\')">Edit</div>' +
                             '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
-                                'onclick="openRemoveCalendarEvent(\'' + ev.id + '\')">Delete</div>' +
+                                'onclick="openRemoveCalendarEvent(\'' + sev.id + '\')">Delete</div>' +
                         '</div>' +
                     '</div>' +
                 '</div>';
         }
-    }
-
-    if (calendarFormState !== 'add' && calendarFormState !== 'edit') {
-        html +=
-            '<button class="btn-add-chore" onclick="openAddCalendarEvent()">+ Add Event</button>';
     }
 
     existing.innerHTML = html;
@@ -776,7 +898,7 @@ function buildCalendarFormHtml(event) {
     var isEdit = !!event;
     var title = isEdit ? 'Edit Event' : 'Add Event';
     var nameVal = isEdit ? event.name : '';
-    var dateVal = isEdit ? event.date : '';
+    var dateVal = isEdit ? event.date : (calendarPendingDate || '');
     var timeVal = isEdit && event.time ? event.time : '';
 
     var saveHandler = isEdit
@@ -853,13 +975,32 @@ function openAddCalendarEvent() {
     calendarFormState = 'add';
     calendarEditId = null;
     calendarError = null;
+    calendarPendingDate = '';
     renderCalendarScreen();
+}
+
+function openAddCalendarEventForDate(ymd) {
+    calendarFormState = 'add';
+    calendarEditId = null;
+    calendarError = null;
+    calendarPendingDate = ymd;
+    /* Optionally jump view to that date's month if not currently displayed */
+    var d = parseYmd(ymd);
+    if (d.getFullYear() !== calendarViewYear || d.getMonth() !== calendarViewMonth) {
+        calendarViewYear = d.getFullYear();
+        calendarViewMonth = d.getMonth();
+    }
+    renderCalendarScreen();
+    /* Focus the name input */
+    var nameInput = document.getElementById('calendar-form-name');
+    if (nameInput) nameInput.focus();
 }
 
 function openEditCalendarEvent(id) {
     calendarFormState = 'edit';
     calendarEditId = id;
     calendarError = null;
+    calendarPendingDate = '';
     renderCalendarScreen();
 }
 
@@ -874,6 +1015,7 @@ function closeCalendarForm() {
     calendarFormState = null;
     calendarEditId = null;
     calendarError = null;
+    calendarPendingDate = '';
     renderCalendarScreen();
 }
 
@@ -896,7 +1038,6 @@ function saveCalendarEvent(editId) {
         return;
     }
 
-    /* Basic date format check YYYY-MM-DD */
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         showFormError('calendar-form-error', 'Please pick a valid date.');
         return;
@@ -924,6 +1065,7 @@ function saveCalendarEvent(editId) {
     calendarFormState = null;
     calendarEditId = null;
     calendarError = null;
+    calendarPendingDate = '';
     renderCalendarScreen();
 }
 
@@ -2615,6 +2757,11 @@ document.addEventListener('DOMContentLoaded', function () {
     parentUnlocked = false;
     pinGateError = null;
 
+    /* Initialise the calendar view to today's month */
+    var now = new Date();
+    calendarViewYear = now.getFullYear();
+    calendarViewMonth = now.getMonth();
+
     updateParentMenuChildCount();
 
     var menuItems = document.querySelectorAll('.parent-menu-item');
@@ -2666,8 +2813,5 @@ document.addEventListener('DOMContentLoaded', function () {
     renderParentPinScreen();
     renderChildHome();
     renderRewardsLedger();
-
-    /* Render Calendar on first load too, so events show when tapping
-       the Calendar nav item without any extra setup. */
     renderCalendarScreen();
 });
