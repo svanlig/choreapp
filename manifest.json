@@ -1,0 +1,11 @@
+{
+  "name": "Mom Bucks",
+  "short_name": "Mom Bucks",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EADED2",
+  "theme_color": "#2A2A2A",
+  "description": "Family chore and reward app."
+}
