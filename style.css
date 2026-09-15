@@ -162,7 +162,10 @@ body {
     color: var(--text-primary);
 }
 
-/* --- CONTENT LAYER --- */
+/* --- CONTENT LAYER ---
+   Top padding reverted to 0 for the shared container so original screens
+   (Child Home, Rewards, Parent PIN, Parent Hub) remain unchanged.
+   The newer subpages get their own scoped top padding further below. */
 .app-content {
     flex: 1;
     overflow-y: auto;
@@ -192,6 +195,19 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+}
+
+/* --- SCOPED TOP SPACING FOR NEWER SCREENS ---
+   Adds a subtle 12px top padding only to the newly added screen/root
+   containers so their Back buttons and top controls have breathing room
+   from the border. Original screens are unaffected. */
+#children-root,
+#chore-setup-root,
+#confirm-chores-root,
+#spending-ledger-root,
+#modify-pin-root,
+#screen-calendar {
+    padding-top: 12px;
 }
 
 /* --- CARD / CONTAINER STYLES --- */
