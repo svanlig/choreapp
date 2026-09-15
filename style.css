@@ -162,10 +162,7 @@ body {
     color: var(--text-primary);
 }
 
-/* --- CONTENT LAYER ---
-   Top padding reverted to 0 for the shared container so original screens
-   (Child Home, Rewards, Parent PIN, Parent Hub) remain unchanged.
-   The newer subpages get their own scoped top padding further below. */
+/* --- CONTENT LAYER --- */
 .app-content {
     flex: 1;
     overflow-y: auto;
@@ -197,16 +194,26 @@ body {
     justify-content: space-between;
 }
 
-/* --- SCOPED TOP SPACING FOR NEWER SCREENS ---
-   Adds a subtle 12px top padding only to the newly added screen/root
-   containers so their Back buttons and top controls have breathing room
-   from the border. Original screens are unaffected. */
+/* --- SCOPED TOP SPACING FOR NEWER SCREENS --- */
 #children-root,
 #chore-setup-root,
 #confirm-chores-root,
 #spending-ledger-root,
 #modify-pin-root,
 #screen-calendar {
+    padding-top: 12px;
+}
+
+/* --- SCOPED TOP SPACING FOR THREE SPECIFIC TOP AREAS ---
+   Adds a small, consistent 12px top padding to the first content block
+   on Child Home, Parent Hub, and Rewards only.
+   - Child Home: the "Viewing as" selector card (only renders with 2+ children)
+   - Parent Hub: the injected ← Back pill
+   - Rewards:    the "Child" selector card (only renders with 2+ children)
+   No other screens or elements are affected. */
+#screen-child-home > .context-input-card:first-child,
+#screen-rewards > .context-input-card:first-child,
+#parent-hub-back-btn {
     padding-top: 12px;
 }
 
