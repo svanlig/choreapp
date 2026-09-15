@@ -1,9 +1,12 @@
 /* ============================================================
    APP.JS — Chore & Reward App
-   Feature implemented: Parent Hub → Children management
+   Features implemented:
+     - Parent Hub → Children management
+     - Parent Hub → Weekly Chores Setup
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
+var CHORES_STORAGE_KEY = 'weeklyChores';
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -11,6 +14,10 @@ var CHILDREN_STORAGE_KEY = 'children';
 
 function generateId() {
     return 'child_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function generateChoreId() {
+    return 'chore_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
 function loadChildren() {
@@ -26,7 +33,6 @@ function loadChildren() {
         /* ignore corrupt storage */
     }
 
-    /* Initial seed — Emma must exist */
     var initial = [
         {
             id: generateId(),
@@ -62,6 +68,47 @@ function isDuplicateName(name, excludeId) {
 }
 
 /* ------------------------------------------------------------
+   CHORES DATA LAYER
+   ------------------------------------------------------------ */
+
+function loadChores() {
+    try {
+        var raw = localStorage.getItem(CHORES_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                return parsed;
+            }
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    return [];
+}
+
+function saveChores(chores) {
+    localStorage.setItem(CHORES_STORAGE_KEY, JSON.stringify(chores));
+}
+
+var choresData = loadChores();
+
+function getChoreById(id) {
+    for (var i = 0; i < choresData.length; i++) {
+        if (choresData[i].id === id) return choresData[i];
+    }
+    return null;
+}
+
+function getChildNamesForIds(ids) {
+    var names = [];
+    for (var i = 0; i < ids.length; i++) {
+        var c = getChildById(ids[i]);
+        if (c) names.push(c.name);
+    }
+    return names;
+}
+
+/* ------------------------------------------------------------
    EXISTING PROTOTYPE: VIEW SWITCHING
    ------------------------------------------------------------ */
 
@@ -77,6 +124,8 @@ function switchView(viewName, btnElement) {
     if (!target) {
         if (viewName === 'children') {
             target = createChildrenScreen();
+        } else if (viewName === 'chore-setup') {
+            target = createChoreSetupScreen();
         }
     }
 
@@ -96,6 +145,8 @@ function switchView(viewName, btnElement) {
 
     if (viewName === 'children') {
         renderChildrenList();
+    } else if (viewName === 'chore-setup') {
+        renderChoreList();
     }
 }
 
@@ -150,28 +201,24 @@ function createChildrenScreen() {
     var screen = document.createElement('div');
     screen.id = 'screen-children';
     screen.className = 'app-screen';
-    /* Single container — its innerHTML is swapped between states */
     screen.innerHTML = '<div id="children-root"></div>';
 
     contentArea.appendChild(screen);
     return screen;
 }
 
-/* Main state renderer — everything renders inside #children-root */
 function renderChildrenList() {
     var root = document.getElementById('children-root');
     if (!root) return;
 
     var html = '';
 
-    /* Section title */
     html +=
         '<div class="section-title">' +
             '<span>Children Profiles</span>' +
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* Children list */
     if (childrenData.length === 0) {
         html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
@@ -201,16 +248,11 @@ function renderChildrenList() {
         }
     }
 
-    /* Add Child button */
     html +=
         '<button class="btn-add-chore" onclick="showAddChildForm()">+ Add Child</button>';
 
     root.innerHTML = html;
 }
-
-/* ------------------------------------------------------------
-   ADD CHILD — FORM STATE (replaces list inside the same screen)
-   ------------------------------------------------------------ */
 
 function showAddChildForm() {
     var root = document.getElementById('children-root');
@@ -258,12 +300,12 @@ function saveNewChild() {
     var avatar = avatarInput ? avatarInput.value.trim() : '';
 
     if (name === '') {
-        showFormError('Child name cannot be blank.');
+        showFormError('child-form-error', 'Child name cannot be blank.');
         return;
     }
 
     if (isDuplicateName(name, null)) {
-        showFormError('A child with that name already exists.');
+        showFormError('child-form-error', 'A child with that name already exists.');
         return;
     }
 
@@ -285,10 +327,6 @@ function saveNewChild() {
     renderChildrenList();
     updateParentMenuChildCount();
 }
-
-/* ------------------------------------------------------------
-   EDIT CHILD — FORM STATE (replaces list inside the same screen)
-   ------------------------------------------------------------ */
 
 function showEditChildForm(id) {
     var child = getChildById(id);
@@ -342,12 +380,12 @@ function saveEditChild(id) {
     var newAvatar = avatarInput ? avatarInput.value.trim() : '';
 
     if (newName === '') {
-        showFormError('Child name cannot be blank.');
+        showFormError('child-form-error', 'Child name cannot be blank.');
         return;
     }
 
     if (isDuplicateName(newName, id)) {
-        showFormError('A child with that name already exists.');
+        showFormError('child-form-error', 'A child with that name already exists.');
         return;
     }
 
@@ -365,10 +403,6 @@ function saveEditChild(id) {
     renderChildrenList();
     updateParentMenuChildCount();
 }
-
-/* ------------------------------------------------------------
-   REMOVE CHILD — CONFIRMATION STATE (replaces list inside the same screen)
-   ------------------------------------------------------------ */
 
 function showRemoveChildConfirm(id) {
     var child = getChildById(id);
@@ -413,11 +447,393 @@ function confirmRemoveChild(id) {
 }
 
 /* ------------------------------------------------------------
+   WEEKLY CHORES SETUP SCREEN — SINGLE CONTAINER, MULTIPLE STATES
+   ------------------------------------------------------------ */
+
+function createChoreSetupScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-chore-setup';
+    screen.className = 'app-screen';
+
+    /* Move existing static markup into a re-renderable container.
+       The existing HTML has a #screen-chore-setup with static content.
+       We must preserve that structure but make its contents dynamic. */
+    var existing = document.getElementById('screen-chore-setup');
+    if (existing && existing !== screen) {
+        /* The existing one is the static prototype screen. Repurpose it. */
+        existing.innerHTML = '<div id="chore-setup-root"></div>';
+        return existing;
+    }
+
+    screen.innerHTML = '<div id="chore-setup-root"></div>';
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function ensureChoreSetupRoot() {
+    /* The static HTML already contains #screen-chore-setup with static content.
+       Replace its innerHTML with a dynamic root on first use. */
+    var existing = document.getElementById('screen-chore-setup');
+    if (!existing) return null;
+
+    var root = document.getElementById('chore-setup-root');
+    if (!root) {
+        existing.innerHTML = '<div id="chore-setup-root"></div>';
+        root = document.getElementById('chore-setup-root');
+    }
+    return root;
+}
+
+function renderChoreList() {
+    var root = ensureChoreSetupRoot();
+    if (!root) return;
+
+    var html = '';
+
+    /* Week banner (preserve original styling) */
+    html +=
+        '<div class="week-selector-banner">' +
+            '<div>' +
+                '<h4>Week 14</h4>' +
+                '<p>September 14–20</p>' +
+            '</div>' +
+            '<div class="control-pill" style="background: transparent; color: white; border-color: white;">Change Week</div>' +
+        '</div>';
+
+    /* Context card (preserve original) */
+    html +=
+        '<div class="context-input-card">' +
+            '<label>Weekly Family Event/Context</label>' +
+            '<p>Summer Holiday</p>' +
+        '</div>';
+
+    /* No children message */
+    if (childrenData.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
+                '<p>No children yet. Please add children first in Manage Children Profiles.</p>' +
+            '</div>';
+        root.innerHTML = html;
+        return;
+    }
+
+    /* Chore list */
+    if (choresData.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
+                '<p>No chores set up for this week yet.</p>' +
+            '</div>';
+    } else {
+        html += '<div class="setup-child-block"><div class="setup-child-header"><span>Weekly Chore Slate</span><span style="color: var(--text-muted); font-size: 0.85rem;">' + choresData.length + ' Active</span></div>';
+
+        for (var i = 0; i < choresData.length; i++) {
+            var chore = choresData[i];
+            var assignedNames = getChildNamesForIds(chore.assignedChildren);
+            var assignedLabel = assignedNames.length > 0
+                ? assignedNames.join(', ')
+                : 'No children assigned';
+
+            html +=
+                '<div class="setup-chore-row" style="flex-direction:column; align-items:stretch; gap:8px;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                        '<div class="setup-chore-info">' +
+                            '<font>' + escapeHtml(chore.name) + '</font>' +
+                            '<span>' + chore.momBucks + ' Mom Bucks</span>' +
+                        '</div>' +
+                        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                            '<div class="control-pill" onclick="showEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
+                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="showRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">' +
+                        'Assigned: ' + escapeHtml(assignedLabel) +
+                    '</div>' +
+                '</div>';
+        }
+        html += '</div>';
+    }
+
+    /* Add chore button */
+    html +=
+        '<button class="btn-add-chore" onclick="showAddChoreForm()">+ Create New Assignment Block</button>';
+
+    root.innerHTML = html;
+}
+
+/* ------------------------------------------------------------
+   ADD CHORE — FORM STATE
+   ------------------------------------------------------------ */
+
+function buildChildCheckboxList(selectedIds) {
+    if (childrenData.length === 0) {
+        return '<div style="font-size:0.85rem; color:var(--text-muted);">No children available.</div>';
+    }
+
+    var html = '<div class="copy-targets" style="flex-wrap:wrap;">';
+    for (var i = 0; i < childrenData.length; i++) {
+        var child = childrenData[i];
+        var checked = '';
+        if (selectedIds && selectedIds.indexOf(child.id) !== -1) {
+            checked = ' checked';
+        }
+        html +=
+            '<div class="target-checkbox">' +
+                '<input type="checkbox" id="chore-child-' + child.id + '" value="' + child.id + '"' + checked + '>' +
+                '<label for="chore-child-' + child.id + '">' + escapeHtml(child.name) + '</label>' +
+            '</div>';
+    }
+    html += '</div>';
+    return html;
+}
+
+function showAddChoreForm() {
+    var root = ensureChoreSetupRoot();
+    if (!root) return;
+
+    if (childrenData.length === 0) {
+        renderChoreList();
+        return;
+    }
+
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Add Chore</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Chore Name</label>' +
+            '<input id="chore-form-name" type="text" placeholder="e.g. Make Bed" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Mom Bucks</label>' +
+            '<input id="chore-form-bucks" type="number" min="0" step="1" placeholder="e.g. 20" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div class="copy-component" style="margin-bottom:12px;">' +
+            '<p>Assign To</p>' +
+            buildChildCheckboxList([]) +
+        '</div>' +
+
+        '<div id="chore-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+            'font-weight:600; margin-bottom:10px;"></div>' +
+
+        '<div style="display:flex; gap:10px;">' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="saveNewChore()">Save</button>' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                'onclick="renderChoreList()">Cancel</button>' +
+        '</div>';
+
+    var nameInput = document.getElementById('chore-form-name');
+    if (nameInput) nameInput.focus();
+}
+
+function readSelectedChildIds() {
+    var ids = [];
+    for (var i = 0; i < childrenData.length; i++) {
+        var cb = document.getElementById('chore-child-' + childrenData[i].id);
+        if (cb && cb.checked) {
+            ids.push(childrenData[i].id);
+        }
+    }
+    return ids;
+}
+
+function saveNewChore() {
+    var nameInput = document.getElementById('chore-form-name');
+    var bucksInput = document.getElementById('chore-form-bucks');
+
+    var name = nameInput ? nameInput.value.trim() : '';
+    var bucksRaw = bucksInput ? bucksInput.value.trim() : '';
+
+    if (name === '') {
+        showFormError('chore-form-error', 'Chore name cannot be blank.');
+        return;
+    }
+
+    if (bucksRaw === '') {
+        showFormError('chore-form-error', 'Mom Bucks is required.');
+        return;
+    }
+
+    var bucks = Number(bucksRaw);
+    if (isNaN(bucks) || !isFinite(bucks) || bucks < 0) {
+        showFormError('chore-form-error', 'Mom Bucks must be a valid number 0 or greater.');
+        return;
+    }
+    bucks = Math.floor(bucks);
+
+    var assigned = readSelectedChildIds();
+    if (assigned.length === 0) {
+        showFormError('chore-form-error', 'Please assign this chore to at least one child.');
+        return;
+    }
+
+    choresData.push({
+        id: generateChoreId(),
+        name: name,
+        momBucks: bucks,
+        assignedChildren: assigned
+    });
+
+    saveChores(choresData);
+    renderChoreList();
+}
+
+/* ------------------------------------------------------------
+   EDIT CHORE — FORM STATE
+   ------------------------------------------------------------ */
+
+function showEditChoreForm(id) {
+    var chore = getChoreById(id);
+    if (!chore) return;
+
+    var root = ensureChoreSetupRoot();
+    if (!root) return;
+
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Edit Chore</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Chore Name</label>' +
+            '<input id="chore-form-name" type="text" value="' + escapeHtml(chore.name) + '" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Mom Bucks</label>' +
+            '<input id="chore-form-bucks" type="number" min="0" step="1" value="' + chore.momBucks + '" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div class="copy-component" style="margin-bottom:12px;">' +
+            '<p>Assign To</p>' +
+            buildChildCheckboxList(chore.assignedChildren || []) +
+        '</div>' +
+
+        '<div id="chore-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+            'font-weight:600; margin-bottom:10px;"></div>' +
+
+        '<div style="display:flex; gap:10px;">' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="saveEditChore(\'' + chore.id + '\')">Save</button>' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                'onclick="renderChoreList()">Cancel</button>' +
+        '</div>';
+
+    var nameInput = document.getElementById('chore-form-name');
+    if (nameInput) nameInput.focus();
+}
+
+function saveEditChore(id) {
+    var chore = getChoreById(id);
+    if (!chore) return;
+
+    var nameInput = document.getElementById('chore-form-name');
+    var bucksInput = document.getElementById('chore-form-bucks');
+
+    var name = nameInput ? nameInput.value.trim() : '';
+    var bucksRaw = bucksInput ? bucksInput.value.trim() : '';
+
+    if (name === '') {
+        showFormError('chore-form-error', 'Chore name cannot be blank.');
+        return;
+    }
+
+    if (bucksRaw === '') {
+        showFormError('chore-form-error', 'Mom Bucks is required.');
+        return;
+    }
+
+    var bucks = Number(bucksRaw);
+    if (isNaN(bucks) || !isFinite(bucks) || bucks < 0) {
+        showFormError('chore-form-error', 'Mom Bucks must be a valid number 0 or greater.');
+        return;
+    }
+    bucks = Math.floor(bucks);
+
+    var assigned = readSelectedChildIds();
+    if (assigned.length === 0) {
+        showFormError('chore-form-error', 'Please assign this chore to at least one child.');
+        return;
+    }
+
+    chore.name = name;
+    chore.momBucks = bucks;
+    chore.assignedChildren = assigned;
+
+    saveChores(choresData);
+    renderChoreList();
+}
+
+/* ------------------------------------------------------------
+   REMOVE CHORE — CONFIRMATION STATE
+   ------------------------------------------------------------ */
+
+function showRemoveChoreConfirm(id) {
+    var chore = getChoreById(id);
+    if (!chore) return;
+
+    var root = ensureChoreSetupRoot();
+    if (!root) return;
+
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Remove Chore</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+
+        '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral);">' +
+            '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
+                'Remove this chore?' +
+            '</div>' +
+            '<div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:6px;">' +
+                escapeHtml(chore.name) + ' · ' + chore.momBucks + ' Mom Bucks' +
+            '</div>' +
+            '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' +
+                'This cannot be undone.' +
+            '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
+                    'border-color:var(--color-coral); color:#fff;" onclick="confirmRemoveChore(\'' + chore.id + '\')">Remove</button>' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                    'onclick="renderChoreList()">Cancel</button>' +
+            '</div>' +
+        '</div>';
+}
+
+function confirmRemoveChore(id) {
+    var newData = [];
+    for (var i = 0; i < choresData.length; i++) {
+        if (choresData[i].id !== id) {
+            newData.push(choresData[i]);
+        }
+    }
+    choresData = newData;
+    saveChores(choresData);
+    renderChoreList();
+}
+
+/* ------------------------------------------------------------
    SHARED ERROR DISPLAY
    ------------------------------------------------------------ */
 
-function showFormError(message) {
-    var err = document.getElementById('child-form-error');
+function showFormError(elementId, message) {
+    var err = document.getElementById(elementId);
     if (err) {
         err.textContent = message;
         err.style.display = 'block';
@@ -458,15 +874,28 @@ function escapeHtml(str) {
 document.addEventListener('DOMContentLoaded', function () {
 
     childrenData = loadChildren();
+    choresData = loadChores();
+
     updateParentMenuChildCount();
 
-    /* Attach click handler to "Manage Children Profiles" menu item */
+    /* Attach click handlers to parent menu items */
     var menuItems = document.querySelectorAll('.parent-menu-item');
     for (var i = 0; i < menuItems.length; i++) {
         var label = menuItems[i].querySelector('div');
-        if (label && label.textContent.indexOf('Manage Children Profiles') !== -1) {
+        if (!label) continue;
+
+        if (label.textContent.indexOf('Manage Children Profiles') !== -1) {
             menuItems[i].onclick = function () {
                 switchView('children', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
+
+        if (label.textContent.indexOf('Weekly Chores') !== -1 ||
+            label.textContent.indexOf('Chore Setup') !== -1 ||
+            label.textContent.indexOf('Weekly Chores Config') !== -1) {
+            menuItems[i].onclick = function () {
+                switchView('chore-setup', null);
             };
             menuItems[i].style.cursor = 'pointer';
         }
