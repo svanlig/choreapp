@@ -3,6 +3,7 @@
    Features implemented:
      - Parent Hub → Children management
      - Parent Hub → Weekly Chores Setup
+     - In-page Back navigation for Parent Hub & Children
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
@@ -147,6 +148,8 @@ function switchView(viewName, btnElement) {
         renderChildrenList();
     } else if (viewName === 'chore-setup') {
         renderChoreList();
+    } else if (viewName === 'parent-area') {
+        renderParentHubBackButton();
     }
 }
 
@@ -191,6 +194,41 @@ function demoBypassPIN() {
 }
 
 /* ------------------------------------------------------------
+   BACK BUTTON HELPERS (in-page, use switchView)
+   ------------------------------------------------------------ */
+
+function goBackToParentHub() {
+    switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
+}
+
+function goBackToParentPin() {
+    switchView('parent-pin', document.querySelectorAll('.btn-proto')[3]);
+}
+
+/* ------------------------------------------------------------
+   PARENT HUB — INJECT IN-PAGE BACK BUTTON
+   ------------------------------------------------------------ */
+
+function renderParentHubBackButton() {
+    var parentScreen = document.getElementById('screen-parent-area');
+    if (!parentScreen) return;
+
+    /* Only inject once */
+    if (document.getElementById('parent-hub-back-btn')) return;
+
+    var backBtn = document.createElement('div');
+    backBtn.id = 'parent-hub-back-btn';
+    backBtn.className = 'control-pill';
+    backBtn.style.cssText = 'display:inline-block; margin-bottom:12px; cursor:pointer;';
+    backBtn.textContent = '← Back';
+    backBtn.onclick = function () {
+        goBackToParentPin();
+    };
+
+    parentScreen.insertBefore(backBtn, parentScreen.firstChild);
+}
+
+/* ------------------------------------------------------------
    CHILDREN SCREEN — SINGLE CONTAINER, MULTIPLE STATES
    ------------------------------------------------------------ */
 
@@ -207,11 +245,20 @@ function createChildrenScreen() {
     return screen;
 }
 
+function childrenBackButtonHtml() {
+    return (
+        '<div class="control-pill" style="display:inline-block; margin-bottom:12px; cursor:pointer;" ' +
+            'onclick="goBackToParentHub()">← Back to Parent Hub</div>'
+    );
+}
+
 function renderChildrenList() {
     var root = document.getElementById('children-root');
     if (!root) return;
 
     var html = '';
+
+    html += childrenBackButtonHtml();
 
     html +=
         '<div class="section-title">' +
@@ -259,6 +306,8 @@ function showAddChildForm() {
     if (!root) return;
 
     root.innerHTML =
+        childrenBackButtonHtml() +
+
         '<div class="section-title">' +
             '<span>Add Child</span>' +
             '<span class="whimsical-shape star"></span>' +
@@ -336,6 +385,8 @@ function showEditChildForm(id) {
     if (!root) return;
 
     root.innerHTML =
+        childrenBackButtonHtml() +
+
         '<div class="section-title">' +
             '<span>Edit Child</span>' +
             '<span class="whimsical-shape star"></span>' +
@@ -412,6 +463,8 @@ function showRemoveChildConfirm(id) {
     if (!root) return;
 
     root.innerHTML =
+        childrenBackButtonHtml() +
+
         '<div class="section-title">' +
             '<span>Remove Child</span>' +
             '<span class="whimsical-shape star"></span>' +
@@ -447,7 +500,7 @@ function confirmRemoveChild(id) {
 }
 
 /* ------------------------------------------------------------
-   WEEKLY CHORES SETUP SCREEN — SINGLE CONTAINER, MULTIPLE STATES
+   WEEKLY CHORES SETUP SCREEN
    ------------------------------------------------------------ */
 
 function createChoreSetupScreen() {
@@ -458,12 +511,8 @@ function createChoreSetupScreen() {
     screen.id = 'screen-chore-setup';
     screen.className = 'app-screen';
 
-    /* Move existing static markup into a re-renderable container.
-       The existing HTML has a #screen-chore-setup with static content.
-       We must preserve that structure but make its contents dynamic. */
     var existing = document.getElementById('screen-chore-setup');
     if (existing && existing !== screen) {
-        /* The existing one is the static prototype screen. Repurpose it. */
         existing.innerHTML = '<div id="chore-setup-root"></div>';
         return existing;
     }
@@ -474,8 +523,6 @@ function createChoreSetupScreen() {
 }
 
 function ensureChoreSetupRoot() {
-    /* The static HTML already contains #screen-chore-setup with static content.
-       Replace its innerHTML with a dynamic root on first use. */
     var existing = document.getElementById('screen-chore-setup');
     if (!existing) return null;
 
@@ -493,7 +540,6 @@ function renderChoreList() {
 
     var html = '';
 
-    /* Week banner (preserve original styling) */
     html +=
         '<div class="week-selector-banner">' +
             '<div>' +
@@ -503,14 +549,12 @@ function renderChoreList() {
             '<div class="control-pill" style="background: transparent; color: white; border-color: white;">Change Week</div>' +
         '</div>';
 
-    /* Context card (preserve original) */
     html +=
         '<div class="context-input-card">' +
             '<label>Weekly Family Event/Context</label>' +
             '<p>Summer Holiday</p>' +
         '</div>';
 
-    /* No children message */
     if (childrenData.length === 0) {
         html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
@@ -520,7 +564,6 @@ function renderChoreList() {
         return;
     }
 
-    /* Chore list */
     if (choresData.length === 0) {
         html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
@@ -556,16 +599,11 @@ function renderChoreList() {
         html += '</div>';
     }
 
-    /* Add chore button */
     html +=
         '<button class="btn-add-chore" onclick="showAddChoreForm()">+ Create New Assignment Block</button>';
 
     root.innerHTML = html;
 }
-
-/* ------------------------------------------------------------
-   ADD CHORE — FORM STATE
-   ------------------------------------------------------------ */
 
 function buildChildCheckboxList(selectedIds) {
     if (childrenData.length === 0) {
@@ -689,10 +727,6 @@ function saveNewChore() {
     renderChoreList();
 }
 
-/* ------------------------------------------------------------
-   EDIT CHORE — FORM STATE
-   ------------------------------------------------------------ */
-
 function showEditChoreForm(id) {
     var chore = getChoreById(id);
     if (!chore) return;
@@ -779,10 +813,6 @@ function saveEditChore(id) {
     saveChores(choresData);
     renderChoreList();
 }
-
-/* ------------------------------------------------------------
-   REMOVE CHORE — CONFIRMATION STATE
-   ------------------------------------------------------------ */
 
 function showRemoveChoreConfirm(id) {
     var chore = getChoreById(id);
@@ -878,7 +908,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
     updateParentMenuChildCount();
 
-    /* Attach click handlers to parent menu items */
     var menuItems = document.querySelectorAll('.parent-menu-item');
     for (var i = 0; i < menuItems.length; i++) {
         var label = menuItems[i].querySelector('div');
@@ -900,6 +929,10 @@ document.addEventListener('DOMContentLoaded', function () {
             menuItems[i].style.cursor = 'pointer';
         }
     }
+
+    /* Inject the Parent Hub back button immediately so it's present
+       even before switchView('parent-area') is called. */
+    renderParentHubBackButton();
 
     syncHeaderWithChild();
 });
