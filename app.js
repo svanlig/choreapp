@@ -6,6 +6,7 @@
      - Parent Hub → Confirm Completed Chores
      - Parent Hub → Record Spending Ledger
      - Parent Hub → Modify Security PIN
+     - Parent Hub → Backup & Restore
      - Parent PIN gate (real verification)
      - Child Home → check-off chores (pending → confirmed)
      - Mom Bucks Ledger (earned + spent transactions)
@@ -23,6 +24,20 @@ var CALENDAR_STORAGE_KEY = 'calendarEvents';
 var DEFAULT_PARENT_PIN = '1234';
 var PIN_MIN_LENGTH = 4;
 var PIN_MAX_LENGTH = 6;
+
+/* All app-owned localStorage keys (used for backup & restore).
+   The completion/approval data lives under COMPLETIONS_STORAGE_KEY. */
+var APP_STORAGE_KEYS = [
+    CHILDREN_STORAGE_KEY,
+    WEEKLY_CHORES_STORAGE_KEY,
+    COMPLETIONS_STORAGE_KEY,
+    LEDGER_STORAGE_KEY,
+    PARENT_PIN_STORAGE_KEY,
+    CALENDAR_STORAGE_KEY
+];
+
+var BACKUP_FORMAT_TAG = 'mom-bucks-app';
+var BACKUP_FORMAT_VERSION = 1;
 
 /* ------------------------------------------------------------
    PARENT PIN DATA LAYER
@@ -62,13 +77,6 @@ var pinGateError = null;
 
 /* ------------------------------------------------------------
    CALENDAR DATA LAYER
-   Each event:
-   {
-     id: "event_...",
-     name: "Math Test",
-     date: "YYYY-MM-DD",
-     time: "HH:MM" | ""       // optional
-   }
    ------------------------------------------------------------ */
 
 function generateEventId() {
@@ -130,16 +138,11 @@ function getEventsForDate(ymd) {
     return list;
 }
 
-/* Calendar UI state */
-var calendarFormState = null;   /* null | 'add' | 'edit' | 'remove' */
+var calendarFormState = null;
 var calendarEditId = null;
 var calendarError = null;
-
-/* Currently displayed month (year + 0-based month) */
 var calendarViewYear = new Date().getFullYear();
 var calendarViewMonth = new Date().getMonth();
-
-/* Pre-filled date for the Add form when a date cell is tapped */
 var calendarPendingDate = '';
 
 /* ------------------------------------------------------------
@@ -461,6 +464,8 @@ function switchView(viewName, btnElement) {
             target = createSpendingLedgerScreen();
         } else if (viewName === 'modify-pin') {
             target = createModifyPinScreen();
+        } else if (viewName === 'backup-restore') {
+            target = createBackupRestoreScreen();
         }
     }
 
@@ -488,10 +493,12 @@ function switchView(viewName, btnElement) {
         renderSpendingLedgerScreen();
     } else if (viewName === 'modify-pin') {
         renderModifyPinScreen();
+    } else if (viewName === 'backup-restore') {
+        renderBackupRestoreScreen();
     } else if (viewName === 'parent-pin') {
         renderParentPinScreen();
     } else if (viewName === 'parent-area') {
-        /* Parent Hub no longer renders a Back button — no action needed here */
+        /* Parent Hub renders no Back button */
     } else if (viewName === 'child-home') {
         renderChildHome();
     } else if (viewName === 'rewards') {
@@ -512,7 +519,8 @@ function updateNavForView(viewName) {
         'chore-setup': 'nav-parent',
         'confirm-chores': 'nav-parent',
         'spending-ledger': 'nav-parent',
-        'modify-pin': 'nav-parent'
+        'modify-pin': 'nav-parent',
+        'backup-restore': 'nav-parent'
     };
     var navItems = document.querySelectorAll('.nav-item');
     for (var i = 0; i < navItems.length; i++) {
@@ -647,13 +655,408 @@ function goBackToParentHub() {
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
 }
 
-function goBackToParentPin() {
-    lockParentArea();
-    switchView('parent-pin', document.querySelectorAll('.btn-proto')[3]);
+/* ------------------------------------------------------------
+   BACKUP & RESTORE SCREEN
+   ------------------------------------------------------------ */
+
+/* UI state for Backup & Restore */
+var backupRestoreState = {
+    /* null | 'confirm-restore' */
+    mode: null,
+    /* Validated backup payload waiting for user confirmation */
+    pendingPayload: null,
+    /* { type: 'error' | 'success' | 'info', text: string } */
+    message: null
+};
+
+function createBackupRestoreScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-backup-restore';
+    screen.className = 'app-screen';
+    screen.innerHTML = '<div id="backup-restore-root"></div>';
+
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function renderBackupRestoreScreen() {
+    var root = document.getElementById('backup-restore-root');
+    if (!root) return;
+
+    var html = '';
+
+    /* Back to Parent Hub (uses the shared helper for consistency) */
+    html +=
+        '<div class="control-pill" style="display:inline-block; margin-bottom:12px; cursor:pointer;" ' +
+            'onclick="goBackToParentHub()">← Back to Parent Hub</div>';
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Backup &amp; Restore</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Message banner */
+    if (backupRestoreState.message) {
+        var msgType = backupRestoreState.message.type;
+        var bannerColor = 'var(--color-coral)';
+        var bannerBorder = 'var(--color-coral)';
+        if (msgType === 'success') {
+            bannerColor = 'var(--color-green)';
+            bannerBorder = 'var(--color-green)';
+        } else if (msgType === 'info') {
+            bannerColor = 'var(--color-blue)';
+            bannerBorder = 'var(--color-blue)';
+        }
+
+        html +=
+            '<div class="ui-card" style="margin-bottom:16px; border:2px solid ' + bannerBorder + '; ' +
+                'color:' + bannerColor + '; font-weight:700; text-align:center;">' +
+                escapeHtml(backupRestoreState.message.text) +
+            '</div>';
+    }
+
+    /* Explanation */
+    html +=
+        '<div class="ui-card" style="margin-bottom:16px;">' +
+            '<div style="font-weight:700; font-size:0.95rem; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.3px;">' +
+                'What\'s included' +
+            '</div>' +
+            '<div style="font-size:0.85rem; color: var(--text-muted); line-height:1.5;">' +
+                'A backup file contains all of this app\'s data stored on this device: children profiles, weekly chores, chore completion and approval records, Mom Bucks ledger, spending transactions, calendar events, and the Parent PIN. ' +
+                'Backups are created locally in your browser — nothing is uploaded anywhere.' +
+            '</div>' +
+        '</div>';
+
+    /* Restore confirmation state */
+    if (backupRestoreState.mode === 'confirm-restore' && backupRestoreState.pendingPayload) {
+        var meta = backupRestoreState.pendingPayload;
+
+        html +=
+            '<div class="ui-card" style="margin-bottom:16px; border:2px solid var(--color-coral);">' +
+                '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
+                    'Restore this backup?' +
+                '</div>' +
+                '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:6px;">' +
+                    'File created: ' + escapeHtml(meta.createdAt || 'unknown') +
+                '</div>' +
+                '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' +
+                    'This will replace the current app data on this device with the data from the backup. ' +
+                    'This cannot be undone.' +
+                '</div>' +
+                '<div style="display:flex; gap:10px;">' +
+                    '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
+                        'border-color:var(--color-coral); color:#fff;" onclick="confirmRestoreBackup()">Restore</button>' +
+                    '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                        'onclick="cancelRestoreBackup()">Cancel</button>' +
+                '</div>' +
+            '</div>';
+    }
+
+    /* Action buttons */
+    if (backupRestoreState.mode !== 'confirm-restore') {
+        html +=
+            '<button class="btn-add-chore" style="margin-top:0; width:100%; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff; margin-bottom:12px;" ' +
+                'onclick="createBackup()">Backup All Data</button>' +
+
+            '<button class="btn-add-chore" style="margin-top:0; width:100%; ' +
+                'background:transparent; border-style:dashed;" ' +
+                'onclick="triggerRestoreFilePicker()">Restore Backup</button>' +
+
+            /* Hidden file input for the restore flow */
+            '<input id="backup-restore-file-input" type="file" accept=".json,application/json" ' +
+                'style="display:none;" onchange="handleRestoreFileSelected(event)" />';
+    } else {
+        /* When confirming, keep the file input in the DOM so the flow
+           can be re-triggered if the user cancels. */
+        html +=
+            '<input id="backup-restore-file-input" type="file" accept=".json,application/json" ' +
+                'style="display:none;" onchange="handleRestoreFileSelected(event)" />';
+    }
+
+    root.innerHTML = html;
 }
 
 /* ------------------------------------------------------------
-   CALENDAR SCREEN — MONTHLY GRID + SHARED FAMILY EVENTS
+   BACKUP
+   ------------------------------------------------------------ */
+
+function createBackup() {
+    var payload = {
+        app: BACKUP_FORMAT_TAG,
+        version: BACKUP_FORMAT_VERSION,
+        createdAt: new Date().toISOString(),
+        data: {}
+    };
+
+    /* Snapshot every key as its raw localStorage string so we never
+       mutate the live values or lose precision. */
+    for (var i = 0; i < APP_STORAGE_KEYS.length; i++) {
+        var key = APP_STORAGE_KEYS[i];
+        var raw = null;
+        try {
+            raw = localStorage.getItem(key);
+        } catch (e) {
+            raw = null;
+        }
+        payload.data[key] = raw;
+    }
+
+    var jsonString;
+    try {
+        jsonString = JSON.stringify(payload, null, 2);
+    } catch (e) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'Could not build the backup file.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    var blob = new Blob([jsonString], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+
+    var filename = 'mom-bucks-backup-' + formatYmd(new Date()) + '.json';
+
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+
+    document.body.appendChild(a);
+    a.click();
+
+    /* Defer cleanup so the click can complete */
+    setTimeout(function () {
+        try {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            /* ignore */
+        }
+    }, 0);
+
+    backupRestoreState.message = {
+        type: 'success',
+        text: 'Backup downloaded as ' + filename + '.'
+    };
+    renderBackupRestoreScreen();
+}
+
+/* ------------------------------------------------------------
+   RESTORE — FILE PICKER
+   ------------------------------------------------------------ */
+
+function triggerRestoreFilePicker() {
+    var input = document.getElementById('backup-restore-file-input');
+    if (!input) return;
+    /* Reset so the same file can be re-selected if needed */
+    input.value = '';
+    input.click();
+}
+
+function handleRestoreFileSelected(event) {
+    var input = event && event.target ? event.target : null;
+    var file = input && input.files && input.files.length > 0 ? input.files[0] : null;
+
+    if (!file) return;
+
+    var reader = new FileReader();
+
+    reader.onload = function (e) {
+        var text = e && e.target ? e.target.result : '';
+        processRestorePayload(text);
+    };
+
+    reader.onerror = function () {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'Could not read the selected file.'
+        };
+        backupRestoreState.mode = null;
+        backupRestoreState.pendingPayload = null;
+        renderBackupRestoreScreen();
+    };
+
+    reader.readAsText(file);
+}
+
+function processRestorePayload(text) {
+    backupRestoreState.pendingPayload = null;
+    backupRestoreState.mode = null;
+
+    if (!text || typeof text !== 'string' || text.trim() === '') {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'The selected file is empty.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    var parsed;
+    try {
+        parsed = JSON.parse(text);
+    } catch (e) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'The selected file is not valid JSON.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'This file is not a Mom Bucks backup.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    if (parsed.app !== BACKUP_FORMAT_TAG) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'This file is not a Mom Bucks backup.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    if (typeof parsed.version !== 'number' || parsed.version > BACKUP_FORMAT_VERSION) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'This backup was created by an unsupported app version.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    if (!parsed.data || typeof parsed.data !== 'object' || Array.isArray(parsed.data)) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'The backup file is missing its data section.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    /* Require at least one recognised key so a file that merely happens
+       to have {app, version, data} doesn't get treated as valid. */
+    var recognised = 0;
+    for (var i = 0; i < APP_STORAGE_KEYS.length; i++) {
+        var k = APP_STORAGE_KEYS[i];
+        if (Object.prototype.hasOwnProperty.call(parsed.data, k)) {
+            recognised++;
+        }
+    }
+    if (recognised === 0) {
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'The backup file does not contain any recognised app data.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    /* Validate each present value is a string or null (we store raw JSON strings). */
+    for (var j = 0; j < APP_STORAGE_KEYS.length; j++) {
+        var key = APP_STORAGE_KEYS[j];
+        if (!Object.prototype.hasOwnProperty.call(parsed.data, key)) continue;
+        var v = parsed.data[key];
+        if (v !== null && typeof v !== 'string') {
+            backupRestoreState.message = {
+                type: 'error',
+                text: 'The backup file has an unexpected structure.'
+            };
+            renderBackupRestoreScreen();
+            return;
+        }
+        /* If the string is non-null, it should itself parse as JSON
+           (since the app always writes JSON), except for the PIN which
+           is a JSON-encoded string. Either way JSON.parse should succeed. */
+        if (v !== null) {
+            try {
+                JSON.parse(v);
+            } catch (e) {
+                backupRestoreState.message = {
+                    type: 'error',
+                    text: 'The backup file contains data that could not be read.'
+                };
+                renderBackupRestoreScreen();
+                return;
+            }
+        }
+    }
+
+    backupRestoreState.pendingPayload = {
+        createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : '',
+        data: parsed.data
+    };
+    backupRestoreState.mode = 'confirm-restore';
+    backupRestoreState.message = null;
+    renderBackupRestoreScreen();
+}
+
+function cancelRestoreBackup() {
+    backupRestoreState.mode = null;
+    backupRestoreState.pendingPayload = null;
+    backupRestoreState.message = {
+        type: 'info',
+        text: 'Restore cancelled. Your data was not changed.'
+    };
+    renderBackupRestoreScreen();
+}
+
+function confirmRestoreBackup() {
+    var pending = backupRestoreState.pendingPayload;
+    if (!pending || !pending.data) {
+        backupRestoreState.mode = null;
+        backupRestoreState.pendingPayload = null;
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'No valid backup is loaded.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    try {
+        for (var i = 0; i < APP_STORAGE_KEYS.length; i++) {
+            var key = APP_STORAGE_KEYS[i];
+            if (!Object.prototype.hasOwnProperty.call(pending.data, key)) continue;
+            var raw = pending.data[key];
+            if (raw === null) {
+                localStorage.removeItem(key);
+            } else {
+                localStorage.setItem(key, raw);
+            }
+        }
+    } catch (e) {
+        backupRestoreState.mode = null;
+        backupRestoreState.pendingPayload = null;
+        backupRestoreState.message = {
+            type: 'error',
+            text: 'Something went wrong while restoring. Your data may be unchanged.'
+        };
+        renderBackupRestoreScreen();
+        return;
+    }
+
+    /* Reload so every screen picks up the restored data. We can't show
+       an in-page success message because the page is about to reload,
+       but this is still silent — no popups are used. */
+    window.location.reload();
+}
+
+/* ------------------------------------------------------------
+   CALENDAR SCREEN
    ------------------------------------------------------------ */
 
 function calendarPrevMonth() {
@@ -684,13 +1087,12 @@ function calendarNextMonth() {
 
 function buildCalendarGridCells(year, month) {
     var firstOfMonth = new Date(year, month, 1);
-    var startOffset = firstOfMonth.getDay(); /* 0 = Sunday */
+    var startOffset = firstOfMonth.getDay();
     var gridStart = addDays(firstOfMonth, -startOffset);
 
     var cells = [];
     for (var i = 0; i < 42; i++) {
-        var d = addDays(gridStart, i);
-        cells.push(d);
+        cells.push(addDays(gridStart, i));
     }
     return cells;
 }
@@ -2766,6 +3168,16 @@ document.addEventListener('DOMContentLoaded', function () {
             menuItems[i].onclick = function () {
                 modifyPinMessage = null;
                 switchView('modify-pin', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
+
+        if (label.textContent.indexOf('Backup & Restore') !== -1) {
+            menuItems[i].onclick = function () {
+                backupRestoreState.mode = null;
+                backupRestoreState.pendingPayload = null;
+                backupRestoreState.message = null;
+                switchView('backup-restore', null);
             };
             menuItems[i].style.cursor = 'pointer';
         }
