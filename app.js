@@ -4,8 +4,9 @@
      - Parent Hub → Children management
      - Parent Hub → Weekly Chores Setup (per-week slate)
      - Parent Hub → Confirm Completed Chores
+     - Parent Hub → Record Spending Ledger
      - Child Home → check-off chores (pending → confirmed)
-     - Mom Bucks Ledger (earned transactions)
+     - Mom Bucks Ledger (earned + spent transactions)
      - Rewards Ledger screen with per-child view
    ============================================================ */
 
@@ -186,7 +187,7 @@ function getCompletionById(id) {
    {
      id: "ledger_...",
      childId: "...",
-     type: "earned" | "spent",      // "spent" reserved for future
+     type: "earned" | "spent",
      amount: 10,                     // always positive; direction from type
      description: "Clean bedroom",
      choreId: "..." | null,
@@ -227,7 +228,6 @@ function getLedgerForChild(childId) {
     for (var i = 0; i < ledgerData.length; i++) {
         if (ledgerData[i].childId === childId) list.push(ledgerData[i]);
     }
-    /* Sort newest first by date, then by id as tiebreaker */
     list.sort(function (a, b) {
         if (a.date > b.date) return -1;
         if (a.date < b.date) return 1;
@@ -324,6 +324,8 @@ function switchView(viewName, btnElement) {
             target = createChoreSetupScreen();
         } else if (viewName === 'confirm-chores') {
             target = createConfirmChoresScreen();
+        } else if (viewName === 'spending-ledger') {
+            target = createSpendingLedgerScreen();
         }
     }
 
@@ -347,6 +349,8 @@ function switchView(viewName, btnElement) {
         renderChoreSetupScreen();
     } else if (viewName === 'confirm-chores') {
         renderConfirmChoresScreen();
+    } else if (viewName === 'spending-ledger') {
+        renderSpendingLedgerScreen();
     } else if (viewName === 'parent-area') {
         renderParentHubBackButton();
     } else if (viewName === 'child-home') {
@@ -365,7 +369,8 @@ function updateNavForView(viewName) {
         'parent-area': 'nav-parent',
         'children': 'nav-parent',
         'chore-setup': 'nav-parent',
-        'confirm-chores': 'nav-parent'
+        'confirm-chores': 'nav-parent',
+        'spending-ledger': 'nav-parent'
     };
     var navItems = document.querySelectorAll('.nav-item');
     for (var i = 0; i < navItems.length; i++) {
@@ -699,7 +704,6 @@ function confirmRemoveChild(id) {
     childrenData = newData;
     saveChildren(childrenData);
 
-    /* Also clear any completions belonging to this child */
     var newCompletions = [];
     for (var j = 0; j < completionsData.length; j++) {
         if (completionsData[j].childId !== id) {
@@ -1128,7 +1132,6 @@ function confirmRemoveChore(id) {
     entry.chores = newChores;
     saveWeeklyChores(weeklyChoresData);
 
-    /* Also remove any completions tied to this chore in this week */
     var newCompletions = [];
     for (var j = 0; j < completionsData.length; j++) {
         var c = completionsData[j];
@@ -1451,7 +1454,6 @@ function confirmCompletion(completionId) {
     var comp = getCompletionById(completionId);
     if (!comp) return;
 
-    /* Prevent double-award */
     if (comp.status === 'confirmed') return;
 
     var child = getChildById(comp.childId);
@@ -1462,17 +1464,13 @@ function confirmCompletion(completionId) {
         return;
     }
 
-    /* Award Mom Bucks to child */
     child.momBucks = (child.momBucks || 0) + comp.momBucks;
     saveChildren(childrenData);
 
-    /* Mark completion confirmed */
     comp.status = 'confirmed';
     saveCompletions(completionsData);
 
-    /* Create ledger transaction — guard against duplicates by completionId */
     if (!findLedgerByCompletion(comp.id)) {
-        /* Resolve chore name for description */
         var description = 'Chore';
         var weekEntry = getWeekEntry(comp.weekStart);
         if (weekEntry && Array.isArray(weekEntry.chores)) {
@@ -1502,10 +1500,343 @@ function confirmCompletion(completionId) {
 }
 
 /* ------------------------------------------------------------
-   REWARDS LEDGER SCREEN
+   RECORD SPENDING LEDGER SCREEN
    ------------------------------------------------------------ */
 
-/* Child currently selected on the Rewards Ledger screen. */
+/* Currently selected child on the Spending Ledger screen. */
+var spendingViewChildId = null;
+
+/* Chore form / confirmation state for spending. */
+var spendingFormState = null; /* null | 'remove' */
+var spendingFormRemoveId = null;
+
+function createSpendingLedgerScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-spending-ledger';
+    screen.className = 'app-screen';
+    screen.innerHTML = '<div id="spending-ledger-root"></div>';
+
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function getSpendingViewChild() {
+    if (spendingViewChildId) {
+        var c = getChildById(spendingViewChildId);
+        if (c) return c;
+    }
+    if (childrenData.length > 0) {
+        spendingViewChildId = childrenData[0].id;
+        return childrenData[0];
+    }
+    return null;
+}
+
+function renderSpendingLedgerScreen() {
+    var root = document.getElementById('spending-ledger-root');
+    if (!root) return;
+
+    var child = getSpendingViewChild();
+
+    var html = '';
+
+    /* Back button — same pattern as other Parent Hub screens */
+    html += childrenBackButtonHtml();
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Record Spending Ledger</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    if (childrenData.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No children yet. Please add children first in Manage Children Profiles.</p>' +
+            '</div>';
+        root.innerHTML = html;
+        return;
+    }
+
+    /* Child selector */
+    if (childrenData.length > 1) {
+        html +=
+            '<div class="context-input-card" style="margin-bottom:12px;">' +
+                '<label>Child</label>' +
+                '<select id="spending-child-picker" onchange="handleSpendingChildChange(this.value)" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;">';
+        for (var i = 0; i < childrenData.length; i++) {
+            var c = childrenData[i];
+            var sel = (child && c.id === child.id) ? ' selected' : '';
+            html += '<option value="' + c.id + '"' + sel + '>' + escapeHtml(c.name) + '</option>';
+        }
+        html +=
+                '</select>' +
+            '</div>';
+    }
+
+    if (!child) {
+        root.innerHTML = html;
+        return;
+    }
+
+    /* Balance card */
+    html +=
+        '<div class="ui-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
+            '<div style="display:flex; align-items:center; gap:12px;">' +
+                '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                    escapeHtml(child.avatar) +
+                '</div>' +
+                '<div>' +
+                    '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                        escapeHtml(child.name) +
+                    '</div>' +
+                    '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:500;">' +
+                        'Current Balance' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div style="font-weight:700; font-size:1.4rem;">' + child.momBucks + '</div>' +
+        '</div>';
+
+    /* Remove confirmation state */
+    if (spendingFormState === 'remove' && spendingFormRemoveId) {
+        var txToRemove = null;
+        for (var t = 0; t < ledgerData.length; t++) {
+            if (ledgerData[t].id === spendingFormRemoveId) {
+                txToRemove = ledgerData[t];
+                break;
+            }
+        }
+
+        if (txToRemove) {
+            var isEarnedRemove = txToRemove.type === 'earned';
+            var signRemove = isEarnedRemove ? '+' : '-';
+
+            html +=
+                '<div class="ui-card" style="margin-bottom:16px; border:2px solid var(--color-coral);">' +
+                    '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
+                        'Remove this transaction?' +
+                    '</div>' +
+                    '<div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:6px;">' +
+                        escapeHtml(txToRemove.description) + ' · ' + signRemove + txToRemove.amount + ' Mom Bucks' +
+                    '</div>' +
+                    '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' +
+                        'This cannot be undone.' +
+                    '</div>' +
+                    '<div style="display:flex; gap:10px;">' +
+                        '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
+                            'border-color:var(--color-coral); color:#fff;" onclick="confirmRemoveSpending(\'' + txToRemove.id + '\')">Remove</button>' +
+                        '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                            'onclick="closeSpendingRemove()">Cancel</button>' +
+                    '</div>' +
+                '</div>';
+        } else {
+            spendingFormState = null;
+            spendingFormRemoveId = null;
+        }
+    }
+
+    /* Spend form (always visible unless remove confirm is active) */
+    if (spendingFormState !== 'remove') {
+        html +=
+            '<div class="ui-card" style="margin-bottom:16px;">' +
+                '<div style="font-weight:700; font-size:0.95rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.3px;">' +
+                    'Record a Purchase' +
+                '</div>' +
+
+                '<div class="context-input-card" style="margin-bottom:10px;">' +
+                    '<label>What was it for?</label>' +
+                    '<input id="spending-form-description" type="text" placeholder="e.g. Movie Night Treat" ' +
+                        'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                        'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+                '</div>' +
+
+                '<div class="context-input-card" style="margin-bottom:10px;">' +
+                    '<label>Mom Bucks Spent</label>' +
+                    '<input id="spending-form-amount" type="number" min="0" step="1" placeholder="e.g. 50" ' +
+                        'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                        'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+                '</div>' +
+
+                '<div id="spending-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+                    'font-weight:600; margin-bottom:10px;"></div>' +
+
+                '<button class="btn-add-chore" style="margin-top:0; width:100%; background:var(--color-blue); ' +
+                    'border-color:var(--color-blue); color:#fff;" onclick="saveSpending()">Record Spending</button>' +
+            '</div>';
+    }
+
+    /* History */
+    html +=
+        '<div class="section-title" style="margin-top:20px;">' +
+            '<span>Transaction History</span>' +
+        '</div>';
+
+    var entries = getLedgerForChild(child.id);
+
+    if (entries.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No transactions yet for this child.</p>' +
+            '</div>';
+        root.innerHTML = html;
+        return;
+    }
+
+    html += '<div class="ui-card"><div class="ledger-list">';
+    for (var k = 0; k < entries.length; k++) {
+        var tx = entries[k];
+        var isEarned = tx.type === 'earned';
+        var amountClass = isEarned ? 'plus' : 'minus';
+        var amountPrefix = isEarned ? '+' : '-';
+
+        html +=
+            '<div class="ledger-row">' +
+                '<div class="ledger-info">' +
+                    '<p>' + escapeHtml(tx.description) + '</p>' +
+                    '<span>' + escapeHtml(formatPrettyDateShort(tx.date)) + '</span>' +
+                '</div>' +
+                '<div style="display:flex; align-items:center; gap:10px;">' +
+                    '<div class="ledger-amount ' + amountClass + '">' +
+                        amountPrefix + tx.amount +
+                    '</div>' +
+                    '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
+                        'onclick="openSpendingRemove(\'' + tx.id + '\')">Remove</div>' +
+                '</div>' +
+            '</div>';
+    }
+    html += '</div></div>';
+
+    root.innerHTML = html;
+}
+
+function handleSpendingChildChange(childId) {
+    spendingViewChildId = childId;
+    /* Reset any open form state when switching children */
+    spendingFormState = null;
+    spendingFormRemoveId = null;
+    renderSpendingLedgerScreen();
+}
+
+function saveSpending() {
+    var child = getSpendingViewChild();
+    if (!child) return;
+
+    var descInput = document.getElementById('spending-form-description');
+    var amountInput = document.getElementById('spending-form-amount');
+
+    var description = descInput ? descInput.value.trim() : '';
+    var amountRaw = amountInput ? amountInput.value.trim() : '';
+
+    if (description === '') {
+        showFormError('spending-form-error', 'Description cannot be blank.');
+        return;
+    }
+
+    if (amountRaw === '') {
+        showFormError('spending-form-error', 'Amount is required.');
+        return;
+    }
+
+    var amount = Number(amountRaw);
+    if (isNaN(amount) || !isFinite(amount) || amount <= 0) {
+        showFormError('spending-form-error', 'Amount must be a valid number greater than 0.');
+        return;
+    }
+    amount = Math.floor(amount);
+
+    if (amount > (child.momBucks || 0)) {
+        showFormError('spending-form-error', 'Not enough Mom Bucks. Balance: ' + child.momBucks + '.');
+        return;
+    }
+
+    /* Deduct from child balance */
+    child.momBucks = (child.momBucks || 0) - amount;
+    saveChildren(childrenData);
+
+    /* Create ledger transaction */
+    ledgerData.push({
+        id: generateLedgerId(),
+        childId: child.id,
+        type: 'spent',
+        amount: amount,
+        description: description,
+        choreId: null,
+        weekStart: null,
+        date: formatYmd(new Date()),
+        completionId: null
+    });
+    saveLedger(ledgerData);
+
+    renderSpendingLedgerScreen();
+}
+
+function openSpendingRemove(id) {
+    spendingFormState = 'remove';
+    spendingFormRemoveId = id;
+    renderSpendingLedgerScreen();
+}
+
+function closeSpendingRemove() {
+    spendingFormState = null;
+    spendingFormRemoveId = null;
+    renderSpendingLedgerScreen();
+}
+
+function confirmRemoveSpending(id) {
+    var tx = null;
+    for (var i = 0; i < ledgerData.length; i++) {
+        if (ledgerData[i].id === id) {
+            tx = ledgerData[i];
+            break;
+        }
+    }
+    if (!tx) {
+        spendingFormState = null;
+        spendingFormRemoveId = null;
+        renderSpendingLedgerScreen();
+        return;
+    }
+
+    /* Refund the child's balance if this was a spent transaction */
+    if (tx.type === 'spent') {
+        var child = getChildById(tx.childId);
+        if (child) {
+            child.momBucks = (child.momBucks || 0) + tx.amount;
+            saveChildren(childrenData);
+        }
+    } else if (tx.type === 'earned') {
+        /* Remove an earned entry: also subtract from balance */
+        var childE = getChildById(tx.childId);
+        if (childE) {
+            childE.momBucks = (childE.momBucks || 0) - tx.amount;
+            saveChildren(childrenData);
+        }
+    }
+
+    var newLedger = [];
+    for (var j = 0; j < ledgerData.length; j++) {
+        if (ledgerData[j].id !== id) {
+            newLedger.push(ledgerData[j]);
+        }
+    }
+    ledgerData = newLedger;
+    saveLedger(ledgerData);
+
+    spendingFormState = null;
+    spendingFormRemoveId = null;
+    renderSpendingLedgerScreen();
+}
+
+/* ------------------------------------------------------------
+   REWARDS LEDGER SCREEN (child-facing view of Mom Bucks history)
+   ------------------------------------------------------------ */
+
 var rewardsViewChildId = null;
 
 function getRewardsViewChild() {
@@ -1528,7 +1859,6 @@ function renderRewardsLedger() {
 
     var html = '';
 
-    /* Child selector (only if more than one child) */
     if (childrenData.length > 1) {
         html +=
             '<div class="context-input-card" style="margin-bottom:12px;">' +
@@ -1555,7 +1885,6 @@ function renderRewardsLedger() {
         return;
     }
 
-    /* Balance card */
     html +=
         '<div class="section-title">' +
             '<span>Mom Bucks Balance</span>' +
@@ -1580,7 +1909,6 @@ function renderRewardsLedger() {
             '<div style="font-weight:700; font-size:1.4rem;">' + child.momBucks + '</div>' +
         '</div>';
 
-    /* History */
     html +=
         '<div class="section-title">' +
             '<span>Mom Bucks History</span>' +
@@ -1705,13 +2033,17 @@ document.addEventListener('DOMContentLoaded', function () {
             };
             menuItems[i].style.cursor = 'pointer';
         }
+
+        if (label.textContent.indexOf('Record Spending Ledger') !== -1) {
+            menuItems[i].onclick = function () {
+                switchView('spending-ledger', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
     }
 
     renderParentHubBackButton();
 
-    /* Render Child Home so assigned chores appear on first load */
     renderChildHome();
-
-    /* Render Rewards Ledger in case it's the first screen shown */
     renderRewardsLedger();
 });
