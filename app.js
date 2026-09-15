@@ -216,3 +216,4 @@ function demoBypassPIN() {
     var children = getChildren();
     console.log('[children] loaded:', children);
 })();
+switchView('child-home', document.querySelectorAll('.btn-proto')[0]);
