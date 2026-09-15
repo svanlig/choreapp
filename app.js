@@ -491,7 +491,7 @@ function switchView(viewName, btnElement) {
     } else if (viewName === 'parent-pin') {
         renderParentPinScreen();
     } else if (viewName === 'parent-area') {
-        renderParentHubBackButton();
+        /* Parent Hub no longer renders a Back button — no action needed here */
     } else if (viewName === 'child-home') {
         renderChildHome();
     } else if (viewName === 'rewards') {
@@ -653,28 +653,6 @@ function goBackToParentPin() {
 }
 
 /* ------------------------------------------------------------
-   PARENT HUB — INJECT IN-PAGE BACK BUTTON
-   ------------------------------------------------------------ */
-
-function renderParentHubBackButton() {
-    var parentScreen = document.getElementById('screen-parent-area');
-    if (!parentScreen) return;
-
-    if (document.getElementById('parent-hub-back-btn')) return;
-
-    var backBtn = document.createElement('div');
-    backBtn.id = 'parent-hub-back-btn';
-    backBtn.className = 'control-pill';
-    backBtn.style.cssText = 'display:inline-block; margin-bottom:12px; cursor:pointer;';
-    backBtn.textContent = '← Back';
-    backBtn.onclick = function () {
-        goBackToParentPin();
-    };
-
-    parentScreen.insertBefore(backBtn, parentScreen.firstChild);
-}
-
-/* ------------------------------------------------------------
    CALENDAR SCREEN — MONTHLY GRID + SHARED FAMILY EVENTS
    ------------------------------------------------------------ */
 
@@ -684,7 +662,6 @@ function calendarPrevMonth() {
         calendarViewMonth = 11;
         calendarViewYear -= 1;
     }
-    /* Close any open form when navigating months */
     calendarFormState = null;
     calendarEditId = null;
     calendarError = null;
@@ -705,7 +682,6 @@ function calendarNextMonth() {
     renderCalendarScreen();
 }
 
-/* Build the month grid cells (6 rows × 7 cols starting Sunday) */
 function buildCalendarGridCells(year, month) {
     var firstOfMonth = new Date(year, month, 1);
     var startOffset = firstOfMonth.getDay(); /* 0 = Sunday */
@@ -726,7 +702,6 @@ function renderCalendarScreen() {
     var todayYmd = formatYmd(new Date());
     var html = '';
 
-    /* Month navigation header */
     html +=
         '<div class="section-title" style="margin-top:0;">' +
             '<div style="display:flex; align-items:center; gap:10px;">' +
@@ -737,7 +712,6 @@ function renderCalendarScreen() {
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* In-page error banner for calendar form */
     if (calendarError) {
         html +=
             '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral); ' +
@@ -746,7 +720,6 @@ function renderCalendarScreen() {
             '</div>';
     }
 
-    /* Add / Edit / Remove forms (in-page) */
     if (calendarFormState === 'add') {
         html += buildCalendarFormHtml(null);
     } else if (calendarFormState === 'edit' && calendarEditId) {
@@ -767,10 +740,8 @@ function renderCalendarScreen() {
         }
     }
 
-    /* Monthly calendar grid */
     html += '<div class="ui-card" style="padding:10px;">';
 
-    /* Day-of-week header row (Sunday → Saturday) */
     html +=
         '<div class="calendar-grid" style="grid-template-columns:repeat(7, 1fr); gap:4px; padding:0; ' +
             'background:transparent; border:none;">' +
@@ -795,7 +766,6 @@ function renderCalendarScreen() {
         var isToday = (cellYmd === todayYmd);
         var dayEvents = getEventsForDate(cellYmd);
 
-        /* Cell background / border */
         var cellBg = inMonth ? 'var(--color-white)' : '#F0E9E2';
         var cellBorder = isToday ? '2px solid var(--color-blue)' : '1px solid rgba(0,0,0,0.06)';
         var dayColor = inMonth ? 'var(--text-primary)' : 'var(--text-muted)';
@@ -805,7 +775,6 @@ function renderCalendarScreen() {
                 'min-height:64px; padding:4px; display:flex; flex-direction:column; gap:2px; ' +
                 'overflow:hidden;">';
 
-        /* Day number — clicking opens the Add Event form with this date */
         html +=
             '<div style="cursor:pointer; font-size:0.8rem; font-weight:700; color:' + dayColor + '; ' +
                 'text-align:right; line-height:1.1;" ' +
@@ -813,7 +782,6 @@ function renderCalendarScreen() {
                 cellDate.getDate() +
             '</div>';
 
-        /* Events */
         for (var e = 0; e < dayEvents.length; e++) {
             var ev = dayEvents[e];
             var timeLabel = ev.time ? formatPrettyTime(ev.time) : '';
@@ -833,16 +801,14 @@ function renderCalendarScreen() {
         html += '</div>';
     }
 
-    html += '</div>'; /* close grid */
-    html += '</div>'; /* close ui-card */
+    html += '</div>';
+    html += '</div>';
 
-    /* Add Event button */
     if (calendarFormState !== 'add' && calendarFormState !== 'edit') {
         html +=
             '<button class="btn-add-chore" onclick="openAddCalendarEvent()">+ Add Event</button>';
     }
 
-    /* Upcoming list beneath the grid for readability */
     html +=
         '<div class="section-title" style="margin-top:20px;">' +
             '<span>Upcoming Events</span>' +
@@ -984,14 +950,12 @@ function openAddCalendarEventForDate(ymd) {
     calendarEditId = null;
     calendarError = null;
     calendarPendingDate = ymd;
-    /* Optionally jump view to that date's month if not currently displayed */
     var d = parseYmd(ymd);
     if (d.getFullYear() !== calendarViewYear || d.getMonth() !== calendarViewMonth) {
         calendarViewYear = d.getFullYear();
         calendarViewMonth = d.getMonth();
     }
     renderCalendarScreen();
-    /* Focus the name input */
     var nameInput = document.getElementById('calendar-form-name');
     if (nameInput) nameInput.focus();
 }
@@ -2757,7 +2721,6 @@ document.addEventListener('DOMContentLoaded', function () {
     parentUnlocked = false;
     pinGateError = null;
 
-    /* Initialise the calendar view to today's month */
     var now = new Date();
     calendarViewYear = now.getFullYear();
     calendarViewMonth = now.getMonth();
@@ -2807,8 +2770,6 @@ document.addEventListener('DOMContentLoaded', function () {
             menuItems[i].style.cursor = 'pointer';
         }
     }
-
-    renderParentHubBackButton();
 
     renderParentPinScreen();
     renderChildHome();
