@@ -66,18 +66,15 @@ function isDuplicateName(name, excludeId) {
    ------------------------------------------------------------ */
 
 function switchView(viewName, btnElement) {
-    /* Remove active from all screens */
     var screens = document.querySelectorAll('.app-screen');
     for (var i = 0; i < screens.length; i++) {
         screens[i].classList.remove('active');
     }
 
-    /* Determine target screen id */
     var targetId = 'screen-' + viewName;
     var target = document.getElementById(targetId);
 
     if (!target) {
-        /* Dynamically create Children screen if it doesn't exist */
         if (viewName === 'children') {
             target = createChildrenScreen();
         }
@@ -87,7 +84,6 @@ function switchView(viewName, btnElement) {
         target.classList.add('active');
     }
 
-    /* Update prototype toolbar buttons */
     var protoButtons = document.querySelectorAll('.btn-proto');
     for (var j = 0; j < protoButtons.length; j++) {
         protoButtons[j].classList.remove('active');
@@ -96,12 +92,10 @@ function switchView(viewName, btnElement) {
         btnElement.classList.add('active');
     }
 
-    /* Update bottom nav active state based on view */
     updateNavForView(viewName);
 
-    /* Refresh children screen content if visible */
     if (viewName === 'children') {
-        renderChildrenScreen();
+        renderChildrenList();
     }
 }
 
@@ -146,7 +140,7 @@ function demoBypassPIN() {
 }
 
 /* ------------------------------------------------------------
-   CHILDREN SCREEN — DYNAMIC CREATION
+   CHILDREN SCREEN — SINGLE CONTAINER, MULTIPLE STATES
    ------------------------------------------------------------ */
 
 function createChildrenScreen() {
@@ -156,161 +150,104 @@ function createChildrenScreen() {
     var screen = document.createElement('div');
     screen.id = 'screen-children';
     screen.className = 'app-screen';
-    screen.innerHTML =
-        '<div class="section-title">' +
-            '<span>Children Profiles</span>' +
-            '<span class="whimsical-shape star"></span>' +
-        '</div>' +
-        '<div id="children-panel-container"></div>' +
-        '<div id="children-list-container"></div>' +
-        '<button class="btn-add-chore" id="btn-add-child" onclick="handleAddChild()">+ Add Child</button>';
+    /* Single container — its innerHTML is swapped between states */
+    screen.innerHTML = '<div id="children-root"></div>';
 
     contentArea.appendChild(screen);
     return screen;
 }
 
-function renderChildrenScreen() {
-    var container = document.getElementById('children-list-container');
-    if (!container) return;
+/* Main state renderer — everything renders inside #children-root */
+function renderChildrenList() {
+    var root = document.getElementById('children-root');
+    if (!root) return;
 
+    var html = '';
+
+    /* Section title */
+    html +=
+        '<div class="section-title">' +
+            '<span>Children Profiles</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Children list */
     if (childrenData.length === 0) {
-        container.innerHTML =
+        html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
                 '<p>No children yet. Tap + Add Child to create a profile.</p>' +
             '</div>';
-        return;
+    } else {
+        for (var i = 0; i < childrenData.length; i++) {
+            var child = childrenData[i];
+            html +=
+                '<div class="ui-card" style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">' +
+                    '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                        escapeHtml(child.avatar) +
+                    '</div>' +
+                    '<div style="flex:1; min-width:0;">' +
+                        '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                            escapeHtml(child.name) +
+                        '</div>' +
+                        '<div style="font-size:0.8rem; color: var(--text-muted); font-weight:500;">' +
+                            'Mom Bucks: ' + child.momBucks +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                        '<div class="control-pill" onclick="showEditChildForm(\'' + child.id + '\')">Edit</div>' +
+                        '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="showRemoveChildConfirm(\'' + child.id + '\')">Remove</div>' +
+                    '</div>' +
+                '</div>';
+        }
     }
 
-    var html = '';
-    for (var i = 0; i < childrenData.length; i++) {
-        var child = childrenData[i];
-        html +=
-            '<div class="ui-card" style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">' +
-                '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
-                    escapeHtml(child.avatar) +
-                '</div>' +
-                '<div style="flex:1; min-width:0;">' +
-                    '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
-                        escapeHtml(child.name) +
-                    '</div>' +
-                    '<div style="font-size:0.8rem; color: var(--text-muted); font-weight:500;">' +
-                        'Mom Bucks: ' + child.momBucks +
-                    '</div>' +
-                '</div>' +
-                '<div style="display:flex; gap:6px; flex-shrink:0;">' +
-                    '<div class="control-pill" onclick="handleEditChild(\'' + child.id + '\')">Edit</div>' +
-                    '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="handleRemoveChild(\'' + child.id + '\')">Remove</div>' +
-                '</div>' +
-            '</div>';
-    }
-    container.innerHTML = html;
+    /* Add Child button */
+    html +=
+        '<button class="btn-add-chore" onclick="showAddChildForm()">+ Add Child</button>';
+
+    root.innerHTML = html;
 }
 
 /* ------------------------------------------------------------
-   IN-APP PANEL HELPERS
+   ADD CHILD — FORM STATE (replaces list inside the same screen)
    ------------------------------------------------------------ */
 
-function getPanelContainer() {
-    return document.getElementById('children-panel-container');
-}
+function showAddChildForm() {
+    var root = document.getElementById('children-root');
+    if (!root) return;
 
-function clearPanel() {
-    var panel = getPanelContainer();
-    if (panel) panel.innerHTML = '';
-}
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Add Child</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
 
-function renderAddChildPanel() {
-    var panel = getPanelContainer();
-    if (!panel) return;
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Child Name</label>' +
+            '<input id="child-form-name" type="text" placeholder="e.g. Liam" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
 
-    panel.innerHTML =
-        '<div class="ui-card" style="margin-bottom:12px;">' +
-            '<div style="font-weight:700; font-size:1rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.3px;">Add Child</div>' +
-            '<div class="context-input-card" style="margin-bottom:8px;">' +
-                '<label>Child Name</label>' +
-                '<input id="child-form-name" type="text" placeholder="e.g. Liam" style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-            '</div>' +
-            '<div class="context-input-card" style="margin-bottom:12px;">' +
-                '<label>Avatar Placeholder</label>' +
-                '<input id="child-form-avatar" type="text" maxlength="2" placeholder="e.g. L" style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-            '</div>' +
-            '<div id="child-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; font-weight:600; margin-bottom:8px;"></div>' +
-            '<div style="display:flex; gap:8px;">' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1;" onclick="saveNewChild()">Save</button>' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" onclick="cancelChildPanel()">Cancel</button>' +
-            '</div>' +
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Avatar</label>' +
+            '<input id="child-form-avatar" type="text" maxlength="2" placeholder="e.g. L" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div id="child-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+            'font-weight:600; margin-bottom:10px;"></div>' +
+
+        '<div style="display:flex; gap:10px;">' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="saveNewChild()">Save</button>' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                'onclick="renderChildrenList()">Cancel</button>' +
         '</div>';
 
     var nameInput = document.getElementById('child-form-name');
     if (nameInput) nameInput.focus();
-}
-
-function renderEditChildPanel(id) {
-    var child = getChildById(id);
-    if (!child) return;
-
-    var panel = getPanelContainer();
-    if (!panel) return;
-
-    panel.innerHTML =
-        '<div class="ui-card" style="margin-bottom:12px;">' +
-            '<div style="font-weight:700; font-size:1rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.3px;">Edit Child</div>' +
-            '<div class="context-input-card" style="margin-bottom:8px;">' +
-                '<label>Child Name</label>' +
-                '<input id="child-form-name" type="text" value="' + escapeHtml(child.name) + '" style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-            '</div>' +
-            '<div class="context-input-card" style="margin-bottom:12px;">' +
-                '<label>Avatar Placeholder</label>' +
-                '<input id="child-form-avatar" type="text" maxlength="2" value="' + escapeHtml(child.avatar) + '" style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-            '</div>' +
-            '<div id="child-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; font-weight:600; margin-bottom:8px;"></div>' +
-            '<div style="display:flex; gap:8px;">' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1;" onclick="saveEditChild(\'' + child.id + '\')">Save</button>' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" onclick="cancelChildPanel()">Cancel</button>' +
-            '</div>' +
-        '</div>';
-
-    var nameInput = document.getElementById('child-form-name');
-    if (nameInput) nameInput.focus();
-}
-
-function renderRemoveChildPanel(id) {
-    var child = getChildById(id);
-    if (!child) return;
-
-    var panel = getPanelContainer();
-    if (!panel) return;
-
-    panel.innerHTML =
-        '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral);">' +
-            '<div style="font-weight:700; font-size:1rem; margin-bottom:6px;">Remove ' + escapeHtml(child.name) + '?</div>' +
-            '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:12px;">This cannot be undone.</div>' +
-            '<div style="display:flex; gap:8px;">' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" onclick="cancelChildPanel()">Cancel</button>' +
-                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); color:#fff; border-color:var(--color-coral);" onclick="confirmRemoveChild(\'' + child.id + '\')">Remove</button>' +
-            '</div>' +
-        '</div>';
-}
-
-function showFormError(message) {
-    var err = document.getElementById('child-form-error');
-    if (err) {
-        err.textContent = message;
-        err.style.display = 'block';
-    }
-}
-
-function cancelChildPanel() {
-    clearPanel();
-}
-
-/* ------------------------------------------------------------
-   CHILDREN ACTIONS — IN-APP FORMS
-   ------------------------------------------------------------ */
-
-function handleAddChild() {
-    clearPanel();
-    renderAddChildPanel();
 }
 
 function saveNewChild() {
@@ -345,14 +282,53 @@ function saveNewChild() {
     });
 
     saveChildren(childrenData);
-    clearPanel();
-    renderChildrenScreen();
+    renderChildrenList();
     updateParentMenuChildCount();
 }
 
-function handleEditChild(id) {
-    clearPanel();
-    renderEditChildPanel(id);
+/* ------------------------------------------------------------
+   EDIT CHILD — FORM STATE (replaces list inside the same screen)
+   ------------------------------------------------------------ */
+
+function showEditChildForm(id) {
+    var child = getChildById(id);
+    if (!child) return;
+
+    var root = document.getElementById('children-root');
+    if (!root) return;
+
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Edit Child</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Child Name</label>' +
+            '<input id="child-form-name" type="text" value="' + escapeHtml(child.name) + '" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Avatar</label>' +
+            '<input id="child-form-avatar" type="text" maxlength="2" value="' + escapeHtml(child.avatar) + '" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>' +
+
+        '<div id="child-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+            'font-weight:600; margin-bottom:10px;"></div>' +
+
+        '<div style="display:flex; gap:10px;">' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="saveEditChild(\'' + child.id + '\')">Save</button>' +
+            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                'onclick="renderChildrenList()">Cancel</button>' +
+        '</div>';
+
+    var nameInput = document.getElementById('child-form-name');
+    if (nameInput) nameInput.focus();
 }
 
 function saveEditChild(id) {
@@ -386,20 +362,44 @@ function saveEditChild(id) {
     child.avatar = newAvatar;
 
     saveChildren(childrenData);
-    clearPanel();
-    renderChildrenScreen();
+    renderChildrenList();
     updateParentMenuChildCount();
 }
 
-function handleRemoveChild(id) {
-    clearPanel();
-    renderRemoveChildPanel(id);
-}
+/* ------------------------------------------------------------
+   REMOVE CHILD — CONFIRMATION STATE (replaces list inside the same screen)
+   ------------------------------------------------------------ */
 
-function confirmRemoveChild(id) {
+function showRemoveChildConfirm(id) {
     var child = getChildById(id);
     if (!child) return;
 
+    var root = document.getElementById('children-root');
+    if (!root) return;
+
+    root.innerHTML =
+        '<div class="section-title">' +
+            '<span>Remove Child</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+
+        '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral);">' +
+            '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
+                'Remove ' + escapeHtml(child.name) + '?' +
+            '</div>' +
+            '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' +
+                'This cannot be undone.' +
+            '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
+                    'border-color:var(--color-coral); color:#fff;" onclick="confirmRemoveChild(\'' + child.id + '\')">Remove</button>' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                    'onclick="renderChildrenList()">Cancel</button>' +
+            '</div>' +
+        '</div>';
+}
+
+function confirmRemoveChild(id) {
     var newData = [];
     for (var i = 0; i < childrenData.length; i++) {
         if (childrenData[i].id !== id) {
@@ -408,9 +408,20 @@ function confirmRemoveChild(id) {
     }
     childrenData = newData;
     saveChildren(childrenData);
-    clearPanel();
-    renderChildrenScreen();
+    renderChildrenList();
     updateParentMenuChildCount();
+}
+
+/* ------------------------------------------------------------
+   SHARED ERROR DISPLAY
+   ------------------------------------------------------------ */
+
+function showFormError(message) {
+    var err = document.getElementById('child-form-error');
+    if (err) {
+        err.textContent = message;
+        err.style.display = 'block';
+    }
 }
 
 /* ------------------------------------------------------------
@@ -446,10 +457,7 @@ function escapeHtml(str) {
 
 document.addEventListener('DOMContentLoaded', function () {
 
-    /* Ensure children data is loaded (already loaded at top) */
     childrenData = loadChildren();
-
-    /* Update parent menu child count */
     updateParentMenuChildCount();
 
     /* Attach click handler to "Manage Children Profiles" menu item */
@@ -464,7 +472,6 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    /* Update header to reflect first child (Emma) */
     syncHeaderWithChild();
 });
 
