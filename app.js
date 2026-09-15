@@ -1,219 +1,365 @@
-/* =========================================================
-   app.js
-   General application logic for the Chore & Reward prototype.
-   Contains: view switching, header updating, system nav,
-   the demo PIN bypass, AND the Children data system.
-   ========================================================= */
-
-
-/* =========================================================
-   CHILDREN DATA SYSTEM
-   ---------------------------------------------------------
-   Stores children in localStorage under the key "children".
-   Each child: { id, name, avatar, momBucks }
-   Default child (created on first use): Emma / E / 0
-   ========================================================= */
+/* ============================================================
+   APP.JS — Chore & Reward App
+   Feature implemented: Parent Hub → Children management
+   ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
 
-/**
- * Returns the full array of children from localStorage.
- * If nothing is stored yet, seeds ONE default child (Emma)
- * and persists it, then returns the array.
- * @returns {Array<{id:string, name:string, avatar:string, momBucks:number}>}
- */
-function getChildren() {
-    var raw = localStorage.getItem(CHILDREN_STORAGE_KEY);
-    if (!raw) {
-        var defaultChild = {
-            id: generateChildId(),
-            name: 'Emma',
-            avatar: 'E',
-            momBucks: 0
-        };
-        var seeded = [defaultChild];
-        saveChildren(seeded);
-        return seeded;
-    }
-    try {
-        var parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed;
-    } catch (e) {
-        console.warn('Children data was corrupt. Resetting to default.', e);
-        var fallbackChild = {
-            id: generateChildId(),
-            name: 'Emma',
-            avatar: 'E',
-            momBucks: 0
-        };
-        var fallback = [fallbackChild];
-        saveChildren(fallback);
-        return fallback;
-    }
+/* ------------------------------------------------------------
+   CHILDREN DATA LAYER
+   ------------------------------------------------------------ */
+
+function generateId() {
+    return 'child_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
-/**
- * Persists the given children array to localStorage.
- * @param {Array} children
- */
+function loadChildren() {
+    try {
+        var raw = localStorage.getItem(CHILDREN_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+                return parsed;
+            }
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+
+    /* Initial seed — Emma must exist */
+    var initial = [
+        {
+            id: generateId(),
+            name: 'Emma',
+            avatar: 'E',
+            momBucks: 0
+        }
+    ];
+    saveChildren(initial);
+    return initial;
+}
+
 function saveChildren(children) {
     localStorage.setItem(CHILDREN_STORAGE_KEY, JSON.stringify(children));
 }
 
-/**
- * Generates a simple unique id for a child record.
- * @returns {string}
- */
-function generateChildId() {
-    return 'c_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+var childrenData = loadChildren();
+
+function getChildById(id) {
+    for (var i = 0; i < childrenData.length; i++) {
+        if (childrenData[i].id === id) return childrenData[i];
+    }
+    return null;
 }
 
-/**
- * Adds a new child and persists the list.
- * @param {string} name
- * @param {string} [avatar] - optional single-character avatar; defaults to first letter of name
- * @returns {object} the newly created child
- */
-function addChild(name, avatar) {
-    var children = getChildren();
-    var trimmed = (name || '').trim();
-    var initial = (avatar && avatar.trim()) ? avatar.trim().charAt(0).toUpperCase()
-                                            : (trimmed.charAt(0).toUpperCase() || '?');
-    var newChild = {
-        id: generateChildId(),
-        name: trimmed || 'New Child',
-        avatar: initial,
-        momBucks: 0
+function isDuplicateName(name, excludeId) {
+    var lower = name.trim().toLowerCase();
+    for (var i = 0; i < childrenData.length; i++) {
+        if (childrenData[i].id === excludeId) continue;
+        if (childrenData[i].name.trim().toLowerCase() === lower) return true;
+    }
+    return false;
+}
+
+/* ------------------------------------------------------------
+   EXISTING PROTOTYPE: VIEW SWITCHING
+   ------------------------------------------------------------ */
+
+function switchView(viewName, btnElement) {
+    /* Remove active from all screens */
+    var screens = document.querySelectorAll('.app-screen');
+    for (var i = 0; i < screens.length; i++) {
+        screens[i].classList.remove('active');
+    }
+
+    /* Determine target screen id */
+    var targetId = 'screen-' + viewName;
+    var target = document.getElementById(targetId);
+
+    if (!target) {
+        /* Dynamically create Children screen if it doesn't exist */
+        if (viewName === 'children') {
+            target = createChildrenScreen();
+        }
+    }
+
+    if (target) {
+        target.classList.add('active');
+    }
+
+    /* Update prototype toolbar buttons */
+    var protoButtons = document.querySelectorAll('.btn-proto');
+    for (var j = 0; j < protoButtons.length; j++) {
+        protoButtons[j].classList.remove('active');
+    }
+    if (btnElement) {
+        btnElement.classList.add('active');
+    }
+
+    /* Update bottom nav active state based on view */
+    updateNavForView(viewName);
+
+    /* Refresh children screen content if visible */
+    if (viewName === 'children') {
+        renderChildrenScreen();
+    }
+}
+
+function updateNavForView(viewName) {
+    var navMap = {
+        'child-home': 'nav-home',
+        'rewards': 'nav-rewards',
+        'calendar': 'nav-calendar',
+        'parent-pin': 'nav-parent',
+        'parent-area': 'nav-parent',
+        'children': 'nav-parent',
+        'chore-setup': 'nav-parent'
     };
-    children.push(newChild);
-    saveChildren(children);
-    return newChild;
-}
-
-/**
- * Edits an existing child by id. Only provided fields are changed.
- * @param {string} id
- * @param {{name?:string, avatar?:string, momBucks?:number}} updates
- * @returns {object|null} the updated child, or null if not found
- */
-function editChild(id, updates) {
-    var children = getChildren();
-    var index = children.findIndex(function (c) { return c.id === id; });
-    if (index === -1) return null;
-
-    var child = children[index];
-    if (updates && typeof updates === 'object') {
-        if (typeof updates.name === 'string')   child.name = updates.name.trim() || child.name;
-        if (typeof updates.avatar === 'string' && updates.avatar.trim() !== '') {
-            child.avatar = updates.avatar.trim().charAt(0).toUpperCase();
-        }
-        if (typeof updates.momBucks === 'number' && !isNaN(updates.momBucks)) {
-            child.momBucks = updates.momBucks;
-        }
+    var navItems = document.querySelectorAll('.nav-item');
+    for (var i = 0; i < navItems.length; i++) {
+        navItems[i].classList.remove('active');
     }
-    children[index] = child;
-    saveChildren(children);
-    return child;
-}
-
-/**
- * Deletes a child by id and persists the list.
- * @param {string} id
- * @returns {boolean} true if a child was removed
- */
-function deleteChild(id) {
-    var children = getChildren();
-    var filtered = children.filter(function (c) { return c.id !== id; });
-    if (filtered.length === children.length) return false;
-    saveChildren(filtered);
-    return true;
-}
-
-
-/* =========================================================
-   EXISTING PROTOTYPE VIEW LOGIC (unchanged)
-   ========================================================= */
-
-/**
- * Switch the active screen and update toolbar + nav highlights.
- * @param {string} screenId - e.g. 'child-home', 'rewards', 'parent-pin'
- * @param {HTMLElement} toolbarBtn - the .btn-proto element that triggered this
- */
-function switchView(screenId, toolbarBtn) {
-    // Update Toolbar Button Visual Selection
-    document.querySelectorAll('.btn-proto').forEach(btn => btn.classList.remove('active'));
-    if (toolbarBtn) toolbarBtn.classList.add('active');
-
-    // Toggle Screens Content
-    document.querySelectorAll('.app-screen').forEach(screen => screen.classList.remove('active'));
-    const targetScreen = document.getElementById('screen-' + screenId);
-    if (targetScreen) targetScreen.classList.add('active');
-
-    // Sync Main Application Navigation System Highlights
-    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-
-    // Context Headings Modifications based on selected views
-    const avatar = document.getElementById('dynamic-avatar');
-    const title = document.getElementById('dynamic-title');
-    const subtitle = document.getElementById('dynamic-subtitle');
-    const balanceBox = document.getElementById('dynamic-balance-container');
-
-    if (screenId === 'parent-area' || screenId === 'chore-setup' || screenId === 'parent-pin') {
-        document.getElementById('nav-parent').classList.add('active');
-        avatar.innerText = 'P';
-        avatar.className = 'avatar-circle parent';
-        title.innerText = 'Parent Mode';
-        subtitle.innerText = 'Family Settings Access';
-        balanceBox.style.visibility = 'hidden';
-    } else {
-        avatar.innerText = 'E';
-        avatar.className = 'avatar-circle';
-        title.innerText = 'Emma';
-        subtitle.innerText = 'Monday, Sept 14, 2026';
-        balanceBox.style.visibility = 'visible';
-
-        if (screenId === 'child-home') document.getElementById('nav-home').classList.add('active');
-        if (screenId === 'rewards') document.getElementById('nav-rewards').classList.add('active');
-        if (screenId === 'calendar') document.getElementById('nav-calendar').classList.add('active');
+    var activeNavId = navMap[viewName];
+    if (activeNavId) {
+        var el = document.getElementById(activeNavId);
+        if (el) el.classList.add('active');
     }
 }
 
-/**
- * Handle clicks on the bottom system navigation bar.
- * Maps nav IDs to the corresponding prototype toolbar button index,
- * then delegates to switchView.
- * @param {string} screenId
- * @param {HTMLElement} navItem
- */
-function handleSystemNav(screenId, navItem) {
-    let correspondingProtoBtnIndex = 0;
-    if (screenId === 'child-home') correspondingProtoBtnIndex = 0;
-    if (screenId === 'rewards') correspondingProtoBtnIndex = 1;
-    if (screenId === 'calendar') correspondingProtoBtnIndex = 2;
-    if (screenId === 'parent-pin') correspondingProtoBtnIndex = 3;
-
-    const btn = document.querySelectorAll('.btn-proto')[correspondingProtoBtnIndex];
-    switchView(screenId, btn);
+function handleSystemNav(viewName, navElement) {
+    var navItems = document.querySelectorAll('.nav-item');
+    for (var i = 0; i < navItems.length; i++) {
+        navItems[i].classList.remove('active');
+    }
+    if (navElement) {
+        navElement.classList.add('active');
+    }
+    switchView(viewName, null);
 }
 
-/**
- * Prototype helper: skip the PIN screen and jump straight to the
- * parent workspace. Wired to the "OK" keypad button.
- */
+/* ------------------------------------------------------------
+   EXISTING PROTOTYPE: PARENT PIN BYPASS
+   ------------------------------------------------------------ */
+
 function demoBypassPIN() {
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
 }
 
+/* ------------------------------------------------------------
+   CHILDREN SCREEN — DYNAMIC CREATION
+   ------------------------------------------------------------ */
 
-/* =========================================================
-   STARTUP
-   ---------------------------------------------------------
-   Load children from localStorage (seeds default Emma on
-   first use). This runs once when the script loads.
-   ========================================================= */
-(function initChildrenSystem() {
-    var children = getChildren();
-    console.log('[children] loaded:', children);
-})();
-switchView('child-home', document.querySelectorAll('.btn-proto')[0]);
+function createChildrenScreen() {
+    var contentArea = document.querySelector('.app-content');
+    if (!contentArea) return null;
+
+    var screen = document.createElement('div');
+    screen.id = 'screen-children';
+    screen.className = 'app-screen';
+    screen.innerHTML =
+        '<div class="section-title">' +
+            '<span>Children Profiles</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>' +
+        '<div id="children-list-container"></div>' +
+        '<button class="btn-add-chore" id="btn-add-child" onclick="handleAddChild()">+ Add Child</button>';
+
+    contentArea.appendChild(screen);
+    return screen;
+}
+
+function renderChildrenScreen() {
+    var container = document.getElementById('children-list-container');
+    if (!container) return;
+
+    if (childrenData.length === 0) {
+        container.innerHTML =
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No children yet. Tap + Add Child to create a profile.</p>' +
+            '</div>';
+        return;
+    }
+
+    var html = '';
+    for (var i = 0; i < childrenData.length; i++) {
+        var child = childrenData[i];
+        html +=
+            '<div class="ui-card" style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">' +
+                '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                    escapeHtml(child.avatar) +
+                '</div>' +
+                '<div style="flex:1; min-width:0;">' +
+                    '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                        escapeHtml(child.name) +
+                    '</div>' +
+                    '<div style="font-size:0.8rem; color: var(--text-muted); font-weight:500;">' +
+                        'Mom Bucks: ' + child.momBucks +
+                    '</div>' +
+                '</div>' +
+                '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                    '<div class="control-pill" onclick="handleEditChild(\'' + child.id + '\')">Edit</div>' +
+                    '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="handleRemoveChild(\'' + child.id + '\')">Remove</div>' +
+                '</div>' +
+            '</div>';
+    }
+    container.innerHTML = html;
+}
+
+/* ------------------------------------------------------------
+   CHILDREN ACTIONS
+   ------------------------------------------------------------ */
+
+function handleAddChild() {
+    var name = prompt('Enter child\'s name:');
+    if (name === null) return; /* cancelled */
+    name = name.trim();
+
+    if (name === '') {
+        alert('Child name cannot be blank.');
+        return;
+    }
+
+    if (isDuplicateName(name, null)) {
+        alert('A child with that name already exists.');
+        return;
+    }
+
+    var avatar = prompt('Enter avatar placeholder (1–2 characters):', name.charAt(0).toUpperCase());
+    if (avatar === null) avatar = name.charAt(0).toUpperCase();
+    avatar = avatar.trim();
+    if (avatar === '') avatar = name.charAt(0).toUpperCase();
+    if (avatar.length > 2) avatar = avatar.charAt(0);
+
+    childrenData.push({
+        id: generateId(),
+        name: name,
+        avatar: avatar,
+        momBucks: 0
+    });
+
+    saveChildren(childrenData);
+    renderChildrenScreen();
+    updateParentMenuChildCount();
+}
+
+function handleEditChild(id) {
+    var child = getChildById(id);
+    if (!child) return;
+
+    var newName = prompt('Edit name for ' + child.name + ':', child.name);
+    if (newName === null) return;
+    newName = newName.trim();
+
+    if (newName === '') {
+        alert('Child name cannot be blank.');
+        return;
+    }
+
+    if (isDuplicateName(newName, id)) {
+        alert('A child with that name already exists.');
+        return;
+    }
+
+    var newAvatar = prompt('Edit avatar placeholder for ' + newName + ':', child.avatar);
+    if (newAvatar === null) newAvatar = child.avatar;
+    newAvatar = newAvatar.trim();
+    if (newAvatar === '') newAvatar = newName.charAt(0).toUpperCase();
+    if (newAvatar.length > 2) newAvatar = newAvatar.charAt(0);
+
+    child.name = newName;
+    child.avatar = newAvatar;
+
+    saveChildren(childrenData);
+    renderChildrenScreen();
+}
+
+function handleRemoveChild(id) {
+    var child = getChildById(id);
+    if (!child) return;
+
+    var confirmed = confirm('Are you sure you want to remove ' + child.name + '? This cannot be undone.');
+    if (!confirmed) return;
+
+    var newData = [];
+    for (var i = 0; i < childrenData.length; i++) {
+        if (childrenData[i].id !== id) {
+            newData.push(childrenData[i]);
+        }
+    }
+    childrenData = newData;
+    saveChildren(childrenData);
+    renderChildrenScreen();
+    updateParentMenuChildCount();
+}
+
+/* ------------------------------------------------------------
+   PARENT MENU — UPDATE CHILD COUNT LABEL
+   ------------------------------------------------------------ */
+
+function updateParentMenuChildCount() {
+    var menuItems = document.querySelectorAll('.parent-menu-item');
+    for (var i = 0; i < menuItems.length; i++) {
+        var label = menuItems[i].querySelector('div');
+        if (label && label.textContent.indexOf('Manage Children Profiles') !== -1) {
+            var span = menuItems[i].querySelector('span');
+            if (span) {
+                span.textContent = childrenData.length + ' Active Account' + (childrenData.length !== 1 ? 's' : '') + ' ➔';
+            }
+        }
+    }
+}
+
+/* ------------------------------------------------------------
+   UTILITY
+   ------------------------------------------------------------ */
+
+function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(str));
+    return div.innerHTML;
+}
+
+/* ------------------------------------------------------------
+   INITIALISE ON DOM READY
+   ------------------------------------------------------------ */
+
+document.addEventListener('DOMContentLoaded', function () {
+
+    /* Ensure children data is loaded (already loaded at top) */
+    childrenData = loadChildren();
+
+    /* Update parent menu child count */
+    updateParentMenuChildCount();
+
+    /* Attach click handler to "Manage Children Profiles" menu item */
+    var menuItems = document.querySelectorAll('.parent-menu-item');
+    for (var i = 0; i < menuItems.length; i++) {
+        var label = menuItems[i].querySelector('div');
+        if (label && label.textContent.indexOf('Manage Children Profiles') !== -1) {
+            menuItems[i].onclick = function () {
+                switchView('children', null);
+            };
+            menuItems[i].style.cursor = 'pointer';
+        }
+    }
+
+    /* Update header to reflect first child (Emma) */
+    syncHeaderWithChild();
+});
+
+/* ------------------------------------------------------------
+   SYNC HEADER WITH CHILD DATA
+   ------------------------------------------------------------ */
+
+function syncHeaderWithChild() {
+    var firstChild = childrenData.length > 0 ? childrenData[0] : null;
+    if (!firstChild) return;
+
+    var avatarEl = document.getElementById('dynamic-avatar');
+    var titleEl = document.getElementById('dynamic-title');
+    var balanceValue = document.querySelector('#dynamic-balance-container .balance-value');
+
+    if (avatarEl) avatarEl.textContent = firstChild.avatar;
+    if (titleEl) titleEl.textContent = firstChild.name;
+    if (balanceValue) balanceValue.textContent = firstChild.momBucks;
+}
