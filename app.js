@@ -5,12 +5,14 @@
      - Parent Hub → Weekly Chores Setup (per-week slate)
      - Parent Hub → Confirm Completed Chores
      - Child Home → check-off chores (pending → confirmed)
-     - In-page Back navigation for Parent Hub & Children
+     - Mom Bucks Ledger (earned transactions)
+     - Rewards Ledger screen with per-child view
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
 var WEEKLY_CHORES_STORAGE_KEY = 'weeklyChores';
 var COMPLETIONS_STORAGE_KEY = 'choreCompletions';
+var LEDGER_STORAGE_KEY = 'momBucksLedger';
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -26,6 +28,10 @@ function generateChoreId() {
 
 function generateCompletionId() {
     return 'completion_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function generateLedgerId() {
+    return 'ledger_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
 function loadChildren() {
@@ -136,15 +142,6 @@ function getChildNamesForIds(ids) {
 
 /* ------------------------------------------------------------
    COMPLETIONS DATA LAYER
-   Each completion:
-   {
-     id: "completion_...",
-     choreId: "...",
-     childId: "...",
-     weekStart: "YYYY-MM-DD",
-     status: "pending" | "confirmed",
-     momBucks: 10
-   }
    ------------------------------------------------------------ */
 
 function loadCompletions() {
@@ -181,6 +178,64 @@ function getCompletionById(id) {
         if (completionsData[i].id === id) return completionsData[i];
     }
     return null;
+}
+
+/* ------------------------------------------------------------
+   MOM BUCKS LEDGER DATA LAYER
+   Each transaction:
+   {
+     id: "ledger_...",
+     childId: "...",
+     type: "earned" | "spent",      // "spent" reserved for future
+     amount: 10,                     // always positive; direction from type
+     description: "Clean bedroom",
+     choreId: "..." | null,
+     weekStart: "YYYY-MM-DD" | null,
+     date: "YYYY-MM-DD",
+     completionId: "..." | null      // used to prevent duplicate awards
+   }
+   ------------------------------------------------------------ */
+
+function loadLedger() {
+    try {
+        var raw = localStorage.getItem(LEDGER_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) return parsed;
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    return [];
+}
+
+function saveLedger(list) {
+    localStorage.setItem(LEDGER_STORAGE_KEY, JSON.stringify(list));
+}
+
+var ledgerData = loadLedger();
+
+function findLedgerByCompletion(completionId) {
+    for (var i = 0; i < ledgerData.length; i++) {
+        if (ledgerData[i].completionId === completionId) return ledgerData[i];
+    }
+    return null;
+}
+
+function getLedgerForChild(childId) {
+    var list = [];
+    for (var i = 0; i < ledgerData.length; i++) {
+        if (ledgerData[i].childId === childId) list.push(ledgerData[i]);
+    }
+    /* Sort newest first by date, then by id as tiebreaker */
+    list.sort(function (a, b) {
+        if (a.date > b.date) return -1;
+        if (a.date < b.date) return 1;
+        if (a.id > b.id) return -1;
+        if (a.id < b.id) return 1;
+        return 0;
+    });
+    return list;
 }
 
 /* ------------------------------------------------------------
@@ -225,6 +280,11 @@ function formatPrettyDate(date) {
 
 function formatPrettyShort(date) {
     return MONTH_NAMES[date.getMonth()] + ' ' + date.getDate();
+}
+
+function formatPrettyDateShort(ymd) {
+    var d = parseYmd(ymd);
+    return MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
 }
 
 function formatWeekLabel(weekStart) {
@@ -291,6 +351,8 @@ function switchView(viewName, btnElement) {
         renderParentHubBackButton();
     } else if (viewName === 'child-home') {
         renderChildHome();
+    } else if (viewName === 'rewards') {
+        renderRewardsLedger();
     }
 }
 
@@ -1086,7 +1148,6 @@ function confirmRemoveChore(id) {
    CHILD HOME — CHECK-OFF CHORES
    ------------------------------------------------------------ */
 
-/* Child currently being viewed on Child Home. Defaults to first child. */
 var activeChildId = null;
 
 function getActiveChild() {
@@ -1109,7 +1170,6 @@ function renderChildHome() {
 
     var html = '';
 
-    /* Child picker (if more than one child) */
     if (childrenData.length > 1) {
         html +=
             '<div class="context-input-card" style="margin-bottom:12px;">' +
@@ -1136,7 +1196,6 @@ function renderChildHome() {
         return;
     }
 
-    /* Balance display for this child */
     html +=
         '<div class="ui-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">' +
             '<div style="display:flex; align-items:center; gap:12px;">' +
@@ -1161,11 +1220,9 @@ function renderChildHome() {
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* Get current week's chores */
     var entry = getWeekEntry(activeWeekStart);
     var chores = entry && entry.chores ? entry.chores : [];
 
-    /* Filter chores assigned to this child */
     var assigned = [];
     for (var k = 0; k < chores.length; k++) {
         if (Array.isArray(chores[k].assignedChildren) &&
@@ -1183,7 +1240,6 @@ function renderChildHome() {
         return;
     }
 
-    /* Render each assigned chore */
     for (var m = 0; m < assigned.length; m++) {
         var chore = assigned[m];
         var completion = getCompletion(chore.id, child.id, activeWeekStart);
@@ -1197,7 +1253,7 @@ function renderChildHome() {
             statusClass = 'state-confirmed';
             checkboxContent = '✓';
             statusPill = '<span class="status-pill confirmed">Confirmed</span>';
-            toggleHandler = ''; /* no toggling after confirmation */
+            toggleHandler = '';
         } else if (completion && completion.status === 'pending') {
             statusClass = 'state-waiting';
             checkboxContent = '•••';
@@ -1247,9 +1303,7 @@ function checkChore(choreId) {
 
     var existing = getCompletion(choreId, child.id, activeWeekStart);
     if (existing) {
-        /* Already confirmed — never downgrade */
         if (existing.status === 'confirmed') return;
-        /* Already pending — nothing to do */
         return;
     }
 
@@ -1275,7 +1329,6 @@ function uncheckChore(choreId) {
         var c = completionsData[i];
         var match = (c.choreId === choreId && c.childId === child.id && c.weekStart === activeWeekStart);
         if (match && c.status === 'pending') {
-            /* Remove the pending completion */
             continue;
         }
         newCompletions.push(c);
@@ -1317,7 +1370,6 @@ function renderConfirmChoresScreen() {
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* Collect all pending completions, newest first */
     var pending = [];
     for (var i = 0; i < completionsData.length; i++) {
         if (completionsData[i].status === 'pending') {
@@ -1334,7 +1386,6 @@ function renderConfirmChoresScreen() {
         return;
     }
 
-    /* Sort by weekStart ascending, then by chore name */
     pending.sort(function (a, b) {
         if (a.weekStart < b.weekStart) return -1;
         if (a.weekStart > b.weekStart) return 1;
@@ -1346,7 +1397,6 @@ function renderConfirmChoresScreen() {
         var child = getChildById(comp.childId);
         var weekEntry = getWeekEntry(comp.weekStart);
 
-        /* Look up the chore name */
         var choreName = '(chore no longer exists)';
         if (weekEntry && Array.isArray(weekEntry.chores)) {
             for (var k = 0; k < weekEntry.chores.length; k++) {
@@ -1394,7 +1444,7 @@ function renderConfirmChoresScreen() {
 }
 
 /* ------------------------------------------------------------
-   CONFIRM COMPLETION — AWARD MOM BUCKS
+   CONFIRM COMPLETION — AWARD MOM BUCKS + CREATE LEDGER ENTRY
    ------------------------------------------------------------ */
 
 function confirmCompletion(completionId) {
@@ -1406,22 +1456,173 @@ function confirmCompletion(completionId) {
 
     var child = getChildById(comp.childId);
     if (!child) {
-        /* Still mark confirmed so it disappears from the pending list */
         comp.status = 'confirmed';
         saveCompletions(completionsData);
         renderConfirmChoresScreen();
         return;
     }
 
-    /* Award Mom Bucks */
+    /* Award Mom Bucks to child */
     child.momBucks = (child.momBucks || 0) + comp.momBucks;
     saveChildren(childrenData);
 
-    /* Mark confirmed */
+    /* Mark completion confirmed */
     comp.status = 'confirmed';
     saveCompletions(completionsData);
 
+    /* Create ledger transaction — guard against duplicates by completionId */
+    if (!findLedgerByCompletion(comp.id)) {
+        /* Resolve chore name for description */
+        var description = 'Chore';
+        var weekEntry = getWeekEntry(comp.weekStart);
+        if (weekEntry && Array.isArray(weekEntry.chores)) {
+            for (var i = 0; i < weekEntry.chores.length; i++) {
+                if (weekEntry.chores[i].id === comp.choreId) {
+                    description = weekEntry.chores[i].name;
+                    break;
+                }
+            }
+        }
+
+        ledgerData.push({
+            id: generateLedgerId(),
+            childId: comp.childId,
+            type: 'earned',
+            amount: comp.momBucks,
+            description: description,
+            choreId: comp.choreId,
+            weekStart: comp.weekStart,
+            date: formatYmd(new Date()),
+            completionId: comp.id
+        });
+        saveLedger(ledgerData);
+    }
+
     renderConfirmChoresScreen();
+}
+
+/* ------------------------------------------------------------
+   REWARDS LEDGER SCREEN
+   ------------------------------------------------------------ */
+
+/* Child currently selected on the Rewards Ledger screen. */
+var rewardsViewChildId = null;
+
+function getRewardsViewChild() {
+    if (rewardsViewChildId) {
+        var c = getChildById(rewardsViewChildId);
+        if (c) return c;
+    }
+    if (childrenData.length > 0) {
+        rewardsViewChildId = childrenData[0].id;
+        return childrenData[0];
+    }
+    return null;
+}
+
+function renderRewardsLedger() {
+    var screen = document.getElementById('screen-rewards');
+    if (!screen) return;
+
+    var child = getRewardsViewChild();
+
+    var html = '';
+
+    /* Child selector (only if more than one child) */
+    if (childrenData.length > 1) {
+        html +=
+            '<div class="context-input-card" style="margin-bottom:12px;">' +
+                '<label>Child</label>' +
+                '<select id="rewards-child-picker" onchange="handleRewardsChildChange(this.value)" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;">';
+        for (var i = 0; i < childrenData.length; i++) {
+            var c = childrenData[i];
+            var sel = (child && c.id === child.id) ? ' selected' : '';
+            html += '<option value="' + c.id + '"' + sel + '>' + escapeHtml(c.name) + '</option>';
+        }
+        html +=
+                '</select>' +
+            '</div>';
+    }
+
+    if (!child) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No children yet. Ask a parent to add a child profile.</p>' +
+            '</div>';
+        screen.innerHTML = html;
+        return;
+    }
+
+    /* Balance card */
+    html +=
+        '<div class="section-title">' +
+            '<span>Mom Bucks Balance</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    html +=
+        '<div class="ui-card" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">' +
+            '<div style="display:flex; align-items:center; gap:12px;">' +
+                '<div class="avatar-circle" style="background-color: var(--color-blue); flex-shrink:0;">' +
+                    escapeHtml(child.avatar) +
+                '</div>' +
+                '<div>' +
+                    '<div style="font-weight:700; font-size:1rem; text-transform:uppercase; letter-spacing:0.3px;">' +
+                        escapeHtml(child.name) +
+                    '</div>' +
+                    '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:500;">' +
+                        'Current Balance' +
+                    '</div>' +
+                '</div>' +
+            '</div>' +
+            '<div style="font-weight:700; font-size:1.4rem;">' + child.momBucks + '</div>' +
+        '</div>';
+
+    /* History */
+    html +=
+        '<div class="section-title">' +
+            '<span>Mom Bucks History</span>' +
+        '</div>';
+
+    var entries = getLedgerForChild(child.id);
+
+    if (entries.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No Mom Bucks earned yet.</p>' +
+            '</div>';
+        screen.innerHTML = html;
+        return;
+    }
+
+    html += '<div class="ui-card"><div class="ledger-list">';
+    for (var k = 0; k < entries.length; k++) {
+        var tx = entries[k];
+        var isEarned = tx.type === 'earned';
+        var amountClass = isEarned ? 'plus' : 'minus';
+        var amountPrefix = isEarned ? '+' : '-';
+
+        html +=
+            '<div class="ledger-row">' +
+                '<div class="ledger-info">' +
+                    '<p>' + escapeHtml(tx.description) + '</p>' +
+                    '<span>' + escapeHtml(formatPrettyDateShort(tx.date)) + '</span>' +
+                '</div>' +
+                '<div class="ledger-amount ' + amountClass + '">' +
+                    amountPrefix + tx.amount +
+                '</div>' +
+            '</div>';
+    }
+    html += '</div></div>';
+
+    screen.innerHTML = html;
+}
+
+function handleRewardsChildChange(childId) {
+    rewardsViewChildId = childId;
+    renderRewardsLedger();
 }
 
 /* ------------------------------------------------------------
@@ -1473,6 +1674,7 @@ document.addEventListener('DOMContentLoaded', function () {
     childrenData = loadChildren();
     weeklyChoresData = loadWeeklyChores();
     completionsData = loadCompletions();
+    ledgerData = loadLedger();
 
     updateParentMenuChildCount();
 
@@ -1509,4 +1711,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     /* Render Child Home so assigned chores appear on first load */
     renderChildHome();
+
+    /* Render Rewards Ledger in case it's the first screen shown */
+    renderRewardsLedger();
 });
