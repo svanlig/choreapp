@@ -10,6 +10,7 @@
      - Child Home → check-off chores (pending → confirmed)
      - Mom Bucks Ledger (earned + spent transactions)
      - Rewards Ledger screen with per-child view
+     - Calendar → shared family events (view/add/edit/delete)
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
@@ -17,6 +18,7 @@ var WEEKLY_CHORES_STORAGE_KEY = 'weeklyChores';
 var COMPLETIONS_STORAGE_KEY = 'choreCompletions';
 var LEDGER_STORAGE_KEY = 'momBucksLedger';
 var PARENT_PIN_STORAGE_KEY = 'parentPIN';
+var CALENDAR_STORAGE_KEY = 'calendarEvents';
 
 var DEFAULT_PARENT_PIN = '1234';
 var PIN_MIN_LENGTH = 4;
@@ -55,12 +57,84 @@ var parentPin = loadParentPin();
    PARENT PIN GATE STATE
    ------------------------------------------------------------ */
 
-/* Whether the parent has successfully passed the PIN gate this session.
-   Reset on every page load and whenever the user leaves the parent area. */
 var parentUnlocked = false;
-
-/* In-page error message for the PIN screen. */
 var pinGateError = null;
+
+/* ------------------------------------------------------------
+   CALENDAR DATA LAYER
+   Each event:
+   {
+     id: "event_...",
+     name: "Math Test",
+     date: "YYYY-MM-DD",
+     time: "HH:MM" | ""       // optional
+   }
+   ------------------------------------------------------------ */
+
+function generateEventId() {
+    return 'event_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function loadCalendarEvents() {
+    try {
+        var raw = localStorage.getItem(CALENDAR_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                var normalised = [];
+                for (var i = 0; i < parsed.length; i++) {
+                    var ev = parsed[i];
+                    if (ev && typeof ev === 'object' && ev.id && ev.name && ev.date) {
+                        normalised.push({
+                            id: ev.id,
+                            name: String(ev.name),
+                            date: String(ev.date),
+                            time: ev.time ? String(ev.time) : ''
+                        });
+                    }
+                }
+                return normalised;
+            }
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    return [];
+}
+
+function saveCalendarEvents(list) {
+    localStorage.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(list));
+}
+
+var calendarEvents = loadCalendarEvents();
+
+function getEventById(id) {
+    for (var i = 0; i < calendarEvents.length; i++) {
+        if (calendarEvents[i].id === id) return calendarEvents[i];
+    }
+    return null;
+}
+
+function getEventsForDate(ymd) {
+    var list = [];
+    for (var i = 0; i < calendarEvents.length; i++) {
+        if (calendarEvents[i].date === ymd) list.push(calendarEvents[i]);
+    }
+    /* Sort by time (events with no time come last) */
+    list.sort(function (a, b) {
+        if (a.time && !b.time) return -1;
+        if (!a.time && b.time) return 1;
+        if (a.time < b.time) return -1;
+        if (a.time > b.time) return 1;
+        return 0;
+    });
+    return list;
+}
+
+/* Calendar state */
+var calendarFormState = null;   /* null | 'add' | 'edit' | 'remove' */
+var calendarEditId = null;
+var calendarError = null;
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -339,12 +413,25 @@ function parseYmd(ymd) {
     return new Date(y, m, d);
 }
 
+function formatPrettyTime(hhmm) {
+    if (!hhmm || typeof hhmm !== 'string') return '';
+    var parts = hhmm.split(':');
+    if (parts.length < 2) return hhmm;
+    var h = parseInt(parts[0], 10);
+    var mn = parseInt(parts[1], 10);
+    if (isNaN(h) || isNaN(mn)) return hhmm;
+    var ampm = h >= 12 ? 'PM' : 'AM';
+    var h12 = h % 12;
+    if (h12 === 0) h12 = 12;
+    return h12 + ':' + pad2(mn) + ' ' + ampm;
+}
+
 /* ------------------------------------------------------------
    EXISTING PROTOTYPE: VIEW SWITCHING
    ------------------------------------------------------------ */
 
 function switchView(viewName, btnElement) {
-    /* PIN GATE: block direct entry into parent-only screens unless unlocked */
+    /* PIN GATE */
     if (viewName === 'parent-area' && !parentUnlocked) {
         viewName = 'parent-pin';
         btnElement = null;
@@ -404,6 +491,8 @@ function switchView(viewName, btnElement) {
         renderChildHome();
     } else if (viewName === 'rewards') {
         renderRewardsLedger();
+    } else if (viewName === 'calendar') {
+        renderCalendarScreen();
     }
 }
 
@@ -485,13 +574,11 @@ function renderParentPinScreen() {
 }
 
 function handlePinGateInput(value) {
-    /* Only allow digits, up to max length */
     var cleaned = String(value || '').replace(/\D/g, '').slice(0, PIN_MAX_LENGTH);
     var input = document.getElementById('pin-gate-input');
     if (input && input.value !== cleaned) {
         input.value = cleaned;
     }
-    /* Clear error as user types */
     if (pinGateError) {
         pinGateError = null;
         var err = document.getElementById('pin-gate-error');
@@ -537,15 +624,10 @@ function verifyParentPin() {
         return;
     }
 
-    /* Success */
     parentUnlocked = true;
     pinGateError = null;
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
 }
-
-/* ------------------------------------------------------------
-   LOCK THE PARENT AREA WHEN LEAVING
-   ------------------------------------------------------------ */
 
 function lockParentArea() {
     parentUnlocked = false;
@@ -553,16 +635,14 @@ function lockParentArea() {
 }
 
 /* ------------------------------------------------------------
-   BACK BUTTON HELPERS (in-page, use switchView)
+   BACK BUTTON HELPERS
    ------------------------------------------------------------ */
 
 function goBackToParentHub() {
-    /* Only reachable while unlocked; keeps the flow consistent */
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
 }
 
 function goBackToParentPin() {
-    /* Leaving the Parent Hub re-locks the gate */
     lockParentArea();
     switchView('parent-pin', document.querySelectorAll('.btn-proto')[3]);
 }
@@ -590,7 +670,280 @@ function renderParentHubBackButton() {
 }
 
 /* ------------------------------------------------------------
-   CHILDREN SCREEN — SINGLE CONTAINER, MULTIPLE STATES
+   CALENDAR SCREEN — SHARED FAMILY EVENTS
+   ------------------------------------------------------------ */
+
+function renderCalendarScreen() {
+    var existing = document.getElementById('screen-calendar');
+    if (!existing) return;
+
+    var html = '';
+
+    html +=
+        '<div class="section-title">' +
+            '<span>Family Calendar</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* In-page error banner for calendar form */
+    if (calendarError) {
+        html +=
+            '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral); ' +
+                'color:var(--color-coral); font-weight:700; text-align:center;">' +
+                escapeHtml(calendarError) +
+            '</div>';
+    }
+
+    /* Add / Edit form */
+    if (calendarFormState === 'add') {
+        html += buildCalendarFormHtml(null);
+    } else if (calendarFormState === 'edit' && calendarEditId) {
+        var editEvent = getEventById(calendarEditId);
+        if (editEvent) {
+            html += buildCalendarFormHtml(editEvent);
+        } else {
+            calendarFormState = null;
+            calendarEditId = null;
+        }
+    } else if (calendarFormState === 'remove' && calendarEditId) {
+        var removeEvent = getEventById(calendarEditId);
+        if (removeEvent) {
+            html += buildCalendarRemoveConfirmHtml(removeEvent);
+        } else {
+            calendarFormState = null;
+            calendarEditId = null;
+        }
+    }
+
+    /* Events list — sorted by date ascending, then by time */
+    var sorted = calendarEvents.slice();
+    sorted.sort(function (a, b) {
+        if (a.date < b.date) return -1;
+        if (a.date > b.date) return 1;
+        if (a.time && !b.time) return -1;
+        if (!a.time && b.time) return 1;
+        if (a.time < b.time) return -1;
+        if (a.time > b.time) return 1;
+        return 0;
+    });
+
+    html +=
+        '<div class="section-title" style="margin-top:16px;">' +
+            '<span>Upcoming Events</span>' +
+        '</div>';
+
+    if (sorted.length === 0) {
+        html +=
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+                '<p>No events yet. Tap + Add Event to create one.</p>' +
+            '</div>';
+    } else {
+        for (var i = 0; i < sorted.length; i++) {
+            var ev = sorted[i];
+            var timeLabel = ev.time ? formatPrettyTime(ev.time) : '';
+
+            html +=
+                '<div class="ui-card" style="margin-bottom:10px;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">' +
+                        '<div style="flex:1; min-width:0;">' +
+                            '<div style="font-weight:700; font-size:1rem;">' +
+                                escapeHtml(ev.name) +
+                            '</div>' +
+                            '<div style="font-size:0.85rem; color:var(--text-muted); font-weight:600; margin-top:4px;">' +
+                                escapeHtml(formatPrettyDateShort(ev.date)) +
+                                (timeLabel ? ' · ' + escapeHtml(timeLabel) : '') +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                            '<div class="control-pill" onclick="openEditCalendarEvent(\'' + ev.id + '\')">Edit</div>' +
+                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
+                                'onclick="openRemoveCalendarEvent(\'' + ev.id + '\')">Delete</div>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+        }
+    }
+
+    if (calendarFormState !== 'add' && calendarFormState !== 'edit') {
+        html +=
+            '<button class="btn-add-chore" onclick="openAddCalendarEvent()">+ Add Event</button>';
+    }
+
+    existing.innerHTML = html;
+}
+
+function buildCalendarFormHtml(event) {
+    var isEdit = !!event;
+    var title = isEdit ? 'Edit Event' : 'Add Event';
+    var nameVal = isEdit ? event.name : '';
+    var dateVal = isEdit ? event.date : '';
+    var timeVal = isEdit && event.time ? event.time : '';
+
+    var saveHandler = isEdit
+        ? 'saveCalendarEvent(\'' + event.id + '\')'
+        : 'saveCalendarEvent(null)';
+
+    return (
+        '<div class="ui-card" style="margin-bottom:16px;">' +
+            '<div style="font-weight:700; font-size:0.95rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.3px;">' +
+                title +
+            '</div>' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Event Name</label>' +
+                '<input id="calendar-form-name" type="text" placeholder="e.g. Math Test" ' +
+                    'value="' + escapeHtml(nameVal) + '" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Date</label>' +
+                '<input id="calendar-form-date" type="date" value="' + escapeHtml(dateVal) + '" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Time (optional)</label>' +
+                '<input id="calendar-form-time" type="time" value="' + escapeHtml(timeVal) + '" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
+
+            '<div id="calendar-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+                'font-weight:600; margin-bottom:10px;"></div>' +
+
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                    'border-color:var(--color-blue); color:#fff;" onclick="' + saveHandler + '">Save</button>' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                    'onclick="closeCalendarForm()">Cancel</button>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function buildCalendarRemoveConfirmHtml(event) {
+    var timeLabel = event.time ? formatPrettyTime(event.time) : '';
+
+    return (
+        '<div class="ui-card" style="margin-bottom:16px; border:2px solid var(--color-coral);">' +
+            '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
+                'Delete this event?' +
+            '</div>' +
+            '<div style="font-size:0.9rem; color:var(--text-muted); margin-bottom:6px;">' +
+                escapeHtml(event.name) + ' · ' + escapeHtml(formatPrettyDateShort(event.date)) +
+                (timeLabel ? ' · ' + escapeHtml(timeLabel) : '') +
+            '</div>' +
+            '<div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">' +
+                'This cannot be undone.' +
+            '</div>' +
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
+                    'border-color:var(--color-coral); color:#fff;" onclick="confirmRemoveCalendarEvent(\'' + event.id + '\')">Delete</button>' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                    'onclick="closeCalendarForm()">Cancel</button>' +
+            '</div>' +
+        '</div>'
+    );
+}
+
+function openAddCalendarEvent() {
+    calendarFormState = 'add';
+    calendarEditId = null;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+function openEditCalendarEvent(id) {
+    calendarFormState = 'edit';
+    calendarEditId = id;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+function openRemoveCalendarEvent(id) {
+    calendarFormState = 'remove';
+    calendarEditId = id;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+function closeCalendarForm() {
+    calendarFormState = null;
+    calendarEditId = null;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+function saveCalendarEvent(editId) {
+    var nameInput = document.getElementById('calendar-form-name');
+    var dateInput = document.getElementById('calendar-form-date');
+    var timeInput = document.getElementById('calendar-form-time');
+
+    var name = nameInput ? nameInput.value.trim() : '';
+    var date = dateInput ? dateInput.value.trim() : '';
+    var time = timeInput ? timeInput.value.trim() : '';
+
+    if (name === '') {
+        showFormError('calendar-form-error', 'Event name cannot be blank.');
+        return;
+    }
+
+    if (date === '') {
+        showFormError('calendar-form-error', 'Date is required.');
+        return;
+    }
+
+    /* Basic date format check YYYY-MM-DD */
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        showFormError('calendar-form-error', 'Please pick a valid date.');
+        return;
+    }
+
+    if (editId) {
+        var ev = getEventById(editId);
+        if (!ev) {
+            showFormError('calendar-form-error', 'Event not found.');
+            return;
+        }
+        ev.name = name;
+        ev.date = date;
+        ev.time = time;
+    } else {
+        calendarEvents.push({
+            id: generateEventId(),
+            name: name,
+            date: date,
+            time: time
+        });
+    }
+
+    saveCalendarEvents(calendarEvents);
+    calendarFormState = null;
+    calendarEditId = null;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+function confirmRemoveCalendarEvent(id) {
+    var newList = [];
+    for (var i = 0; i < calendarEvents.length; i++) {
+        if (calendarEvents[i].id !== id) {
+            newList.push(calendarEvents[i]);
+        }
+    }
+    calendarEvents = newList;
+    saveCalendarEvents(calendarEvents);
+    calendarFormState = null;
+    calendarEditId = null;
+    calendarError = null;
+    renderCalendarScreen();
+}
+
+/* ------------------------------------------------------------
+   CHILDREN SCREEN
    ------------------------------------------------------------ */
 
 function createChildrenScreen() {
@@ -1031,10 +1384,6 @@ function renderChoreSetupScreen() {
     root.innerHTML = html;
 }
 
-/* ------------------------------------------------------------
-   WEEK SELECTION HANDLERS
-   ------------------------------------------------------------ */
-
 function handleWeekDateChange(value) {
     if (!value) return;
     var picked = parseYmd(value);
@@ -1054,10 +1403,6 @@ function handleWeekContextChange(value) {
     entry.weekContext = value;
     saveWeeklyChores(weeklyChoresData);
 }
-
-/* ------------------------------------------------------------
-   CHORE CRUD — WITHIN ACTIVE WEEK
-   ------------------------------------------------------------ */
 
 function getActiveWeekChores() {
     var entry = getWeekEntry(activeWeekStart);
@@ -1096,10 +1441,6 @@ function closeChoreForm() {
     choreFormEditId = null;
     renderChoreSetupScreen();
 }
-
-/* ------------------------------------------------------------
-   CHORE FORM HTML BUILDERS
-   ------------------------------------------------------------ */
 
 function buildChildCheckboxList(selectedIds) {
     if (childrenData.length === 0) {
@@ -1193,10 +1534,6 @@ function buildChoreRemoveConfirmHtml(chore) {
         '</div>'
     );
 }
-
-/* ------------------------------------------------------------
-   CHORE SAVE / REMOVE
-   ------------------------------------------------------------ */
 
 function readSelectedChildIds() {
     var ids = [];
@@ -1301,7 +1638,7 @@ function confirmRemoveChore(id) {
 }
 
 /* ------------------------------------------------------------
-   CHILD HOME — CHECK-OFF CHORES
+   CHILD HOME
    ------------------------------------------------------------ */
 
 var activeChildId = null;
@@ -1496,7 +1833,7 @@ function uncheckChore(choreId) {
 }
 
 /* ------------------------------------------------------------
-   CONFIRM COMPLETED CHORES SCREEN
+   CONFIRM COMPLETED CHORES
    ------------------------------------------------------------ */
 
 function createConfirmChoresScreen() {
@@ -1599,10 +1936,6 @@ function renderConfirmChoresScreen() {
     root.innerHTML = html;
 }
 
-/* ------------------------------------------------------------
-   CONFIRM COMPLETION — AWARD MOM BUCKS + CREATE LEDGER ENTRY
-   ------------------------------------------------------------ */
-
 function confirmCompletion(completionId) {
     var comp = getCompletionById(completionId);
     if (!comp) return;
@@ -1653,7 +1986,7 @@ function confirmCompletion(completionId) {
 }
 
 /* ------------------------------------------------------------
-   RECORD SPENDING LEDGER SCREEN
+   RECORD SPENDING LEDGER
    ------------------------------------------------------------ */
 
 var spendingViewChildId = null;
@@ -1973,7 +2306,7 @@ function confirmRemoveSpending(id) {
 }
 
 /* ------------------------------------------------------------
-   MODIFY SECURITY PIN SCREEN
+   MODIFY SECURITY PIN
    ------------------------------------------------------------ */
 
 var modifyPinMessage = null;
@@ -2107,7 +2440,7 @@ function savePin() {
 }
 
 /* ------------------------------------------------------------
-   REWARDS LEDGER SCREEN (child-facing view of Mom Bucks history)
+   REWARDS LEDGER
    ------------------------------------------------------------ */
 
 var rewardsViewChildId = null;
@@ -2277,8 +2610,8 @@ document.addEventListener('DOMContentLoaded', function () {
     completionsData = loadCompletions();
     ledgerData = loadLedger();
     parentPin = loadParentPin();
+    calendarEvents = loadCalendarEvents();
 
-    /* Gate starts locked on every page load */
     parentUnlocked = false;
     pinGateError = null;
 
@@ -2330,9 +2663,11 @@ document.addEventListener('DOMContentLoaded', function () {
 
     renderParentHubBackButton();
 
-    /* Render the actual PIN gate on first load of parent-pin screen */
     renderParentPinScreen();
-
     renderChildHome();
     renderRewardsLedger();
+
+    /* Render Calendar on first load too, so events show when tapping
+       the Calendar nav item without any extra setup. */
+    renderCalendarScreen();
 });
