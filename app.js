@@ -2,12 +2,12 @@
    APP.JS — Chore & Reward App
    Features implemented:
      - Parent Hub → Children management
-     - Parent Hub → Weekly Chores Setup
+     - Parent Hub → Weekly Chores Setup (per-week slate)
      - In-page Back navigation for Parent Hub & Children
    ============================================================ */
 
 var CHILDREN_STORAGE_KEY = 'children';
-var CHORES_STORAGE_KEY = 'weeklyChores';
+var WEEKLY_CHORES_STORAGE_KEY = 'weeklyChores';
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -69,16 +69,33 @@ function isDuplicateName(name, excludeId) {
 }
 
 /* ------------------------------------------------------------
-   CHORES DATA LAYER
+   WEEKLY CHORES DATA LAYER
+   Structure:
+   [
+     {
+       weekStart: "YYYY-MM-DD",
+       weekContext: "string",
+       chores: [ { id, name, momBucks, assignedChildren: [] } ]
+     },
+     ...
+   ]
    ------------------------------------------------------------ */
 
-function loadChores() {
+function loadWeeklyChores() {
     try {
-        var raw = localStorage.getItem(CHORES_STORAGE_KEY);
+        var raw = localStorage.getItem(WEEKLY_CHORES_STORAGE_KEY);
         if (raw) {
             var parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) {
-                return parsed;
+                /* Normalise — guard against legacy flat array of chores */
+                var normalised = [];
+                for (var i = 0; i < parsed.length; i++) {
+                    var entry = parsed[i];
+                    if (entry && typeof entry === 'object' && entry.weekStart && Array.isArray(entry.chores)) {
+                        normalised.push(entry);
+                    }
+                }
+                return normalised;
             }
         }
     } catch (e) {
@@ -87,26 +104,83 @@ function loadChores() {
     return [];
 }
 
-function saveChores(chores) {
-    localStorage.setItem(CHORES_STORAGE_KEY, JSON.stringify(chores));
+function saveWeeklyChores(weekly) {
+    localStorage.setItem(WEEKLY_CHORES_STORAGE_KEY, JSON.stringify(weekly));
 }
 
-var choresData = loadChores();
+var weeklyChoresData = loadWeeklyChores();
 
-function getChoreById(id) {
-    for (var i = 0; i < choresData.length; i++) {
-        if (choresData[i].id === id) return choresData[i];
+function getWeekEntry(weekStart) {
+    for (var i = 0; i < weeklyChoresData.length; i++) {
+        if (weeklyChoresData[i].weekStart === weekStart) return weeklyChoresData[i];
     }
     return null;
 }
 
+function ensureWeekEntry(weekStart) {
+    var entry = getWeekEntry(weekStart);
+    if (!entry) {
+        entry = { weekStart: weekStart, weekContext: '', chores: [] };
+        weeklyChoresData.push(entry);
+        saveWeeklyChores(weeklyChoresData);
+    }
+    return entry;
+}
+
 function getChildNamesForIds(ids) {
     var names = [];
+    if (!Array.isArray(ids)) return names;
     for (var i = 0; i < ids.length; i++) {
         var c = getChildById(ids[i]);
         if (c) names.push(c.name);
     }
     return names;
+}
+
+/* ------------------------------------------------------------
+   DATE HELPERS
+   ------------------------------------------------------------ */
+
+function pad2(n) {
+    return n < 10 ? '0' + n : '' + n;
+}
+
+function formatYmd(date) {
+    return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+}
+
+/* Given any date, return the Monday of that week as "YYYY-MM-DD".
+   Weeks are Monday → Sunday. */
+function getMondayOf(date) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    var day = d.getDay(); /* 0 = Sun, 1 = Mon, ... 6 = Sat */
+    var diff;
+    if (day === 0) {
+        diff = -6; /* Sunday -> previous Monday */
+    } else {
+        diff = 1 - day; /* Monday -> 0, Tuesday -> -1, ... */
+    }
+    d.setDate(d.getDate() + diff);
+    return d;
+}
+
+function addDays(date, n) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    d.setDate(d.getDate() + n);
+    return d;
+}
+
+var MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function formatPrettyDate(date) {
+    return MONTH_NAMES[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
+}
+
+function formatPrettyShort(date) {
+    return MONTH_NAMES[date.getMonth()] + ' ' + date.getDate();
 }
 
 /* ------------------------------------------------------------
@@ -147,7 +221,7 @@ function switchView(viewName, btnElement) {
     if (viewName === 'children') {
         renderChildrenList();
     } else if (viewName === 'chore-setup') {
-        renderChoreList();
+        renderChoreSetupScreen();
     } else if (viewName === 'parent-area') {
         renderParentHubBackButton();
     }
@@ -213,7 +287,6 @@ function renderParentHubBackButton() {
     var parentScreen = document.getElementById('screen-parent-area');
     if (!parentScreen) return;
 
-    /* Only inject once */
     if (document.getElementById('parent-hub-back-btn')) return;
 
     var backBtn = document.createElement('div');
@@ -500,24 +573,31 @@ function confirmRemoveChild(id) {
 }
 
 /* ------------------------------------------------------------
-   WEEKLY CHORES SETUP SCREEN
+   WEEKLY CHORE SLATE SCREEN
    ------------------------------------------------------------ */
 
+/* Currently-selected week (weekStart YYYY-MM-DD). Defaults to current week. */
+var activeWeekStart = formatYmd(getMondayOf(new Date()));
+
+/* Currently-open chore form mode: null | 'add' | 'edit' | 'remove' */
+var choreFormState = null;
+var choreFormEditId = null;
+
 function createChoreSetupScreen() {
+    var existing = document.getElementById('screen-chore-setup');
+    if (existing) {
+        existing.innerHTML = '<div id="chore-setup-root"></div>';
+        return existing;
+    }
+
     var contentArea = document.querySelector('.app-content');
     if (!contentArea) return null;
 
     var screen = document.createElement('div');
     screen.id = 'screen-chore-setup';
     screen.className = 'app-screen';
-
-    var existing = document.getElementById('screen-chore-setup');
-    if (existing && existing !== screen) {
-        existing.innerHTML = '<div id="chore-setup-root"></div>';
-        return existing;
-    }
-
     screen.innerHTML = '<div id="chore-setup-root"></div>';
+
     contentArea.appendChild(screen);
     return screen;
 }
@@ -534,46 +614,100 @@ function ensureChoreSetupRoot() {
     return root;
 }
 
-function renderChoreList() {
+function renderChoreSetupScreen() {
     var root = ensureChoreSetupRoot();
     if (!root) return;
 
+    var backHtml =
+        '<div class="control-pill" style="display:inline-block; margin-bottom:12px; cursor:pointer;" ' +
+            'onclick="goBackToParentHub()">← Back to Parent Hub</div>';
+
     var html = '';
+    html += backHtml;
 
     html +=
-        '<div class="week-selector-banner">' +
-            '<div>' +
-                '<h4>Week 14</h4>' +
-                '<p>September 14–20</p>' +
+        '<div class="section-title">' +
+            '<span>Weekly Chore Slate</span>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Week picker */
+    var monday = parseYmd(activeWeekStart);
+    var sunday = addDays(monday, 6);
+
+    html +=
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Week of</label>' +
+            '<input id="week-date-input" type="date" value="' + activeWeekStart + '" ' +
+                'onchange="handleWeekDateChange(this.value)" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:600; margin-top:6px;">' +
+                'Week of ' + formatPrettyShort(monday) + ' – ' + formatPrettyShort(sunday) + ', ' + sunday.getFullYear() +
             '</div>' +
-            '<div class="control-pill" style="background: transparent; color: white; border-color: white;">Change Week</div>' +
         '</div>';
+
+    /* Weekly context */
+    var entry = getWeekEntry(activeWeekStart);
+    var contextValue = entry && entry.weekContext ? entry.weekContext : '';
 
     html +=
-        '<div class="context-input-card">' +
-            '<label>Weekly Family Event/Context</label>' +
-            '<p>Summer Holiday</p>' +
+        '<div class="context-input-card" style="margin-bottom:16px;">' +
+            '<label>What\'s happening this week?</label>' +
+            '<input id="week-context-input" type="text" placeholder="e.g. Test Week, Family Vacation (optional)" ' +
+                'value="' + escapeHtml(contextValue) + '" ' +
+                'oninput="handleWeekContextChange(this.value)" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
         '</div>';
 
+    /* No children guard */
     if (childrenData.length === 0) {
         html +=
-            '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
                 '<p>No children yet. Please add children first in Manage Children Profiles.</p>' +
             '</div>';
         root.innerHTML = html;
         return;
     }
 
-    if (choresData.length === 0) {
+    /* Chore form (if active) */
+    if (choreFormState === 'add') {
+        html += buildChoreFormHtml(null);
+    } else if (choreFormState === 'edit' && choreFormEditId) {
+        var editChore = getChoreFromActiveWeek(choreFormEditId);
+        if (editChore) {
+            html += buildChoreFormHtml(editChore);
+        } else {
+            choreFormState = null;
+            choreFormEditId = null;
+        }
+    } else if (choreFormState === 'remove' && choreFormEditId) {
+        var removeChore = getChoreFromActiveWeek(choreFormEditId);
+        if (removeChore) {
+            html += buildChoreRemoveConfirmHtml(removeChore);
+        } else {
+            choreFormState = null;
+            choreFormEditId = null;
+        }
+    }
+
+    /* Chore list */
+    html +=
+        '<div class="section-title" style="margin-top:20px;">' +
+            '<span>Chores for this week</span>' +
+        '</div>';
+
+    var chores = entry && entry.chores ? entry.chores : [];
+
+    if (chores.length === 0) {
         html +=
-            '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-top:16px;">' +
-                '<p>No chores set up for this week yet.</p>' +
+            '<div class="ui-card" style="text-align:center; color: var(--text-muted); margin-bottom:12px;">' +
+                '<p>No chores yet for this week.</p>' +
             '</div>';
     } else {
-        html += '<div class="setup-child-block"><div class="setup-child-header"><span>Weekly Chore Slate</span><span style="color: var(--text-muted); font-size: 0.85rem;">' + choresData.length + ' Active</span></div>';
-
-        for (var i = 0; i < choresData.length; i++) {
-            var chore = choresData[i];
+        for (var i = 0; i < chores.length; i++) {
+            var chore = chores[i];
             var assignedNames = getChildNamesForIds(chore.assignedChildren);
             var assignedLabel = assignedNames.length > 0
                 ? assignedNames.join(', ')
@@ -587,8 +721,8 @@ function renderChoreList() {
                             '<span>' + chore.momBucks + ' Mom Bucks</span>' +
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
-                            '<div class="control-pill" onclick="showEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
-                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="showRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
+                            '<div class="control-pill" onclick="openEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
+                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="openRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">' +
@@ -596,14 +730,99 @@ function renderChoreList() {
                     '</div>' +
                 '</div>';
         }
-        html += '</div>';
     }
 
-    html +=
-        '<button class="btn-add-chore" onclick="showAddChoreForm()">+ Create New Assignment Block</button>';
+    /* Add Chore button — hidden if form is already open */
+    if (choreFormState !== 'add') {
+        html +=
+            '<button class="btn-add-chore" onclick="openAddChoreForm()">+ Add Chore</button>';
+    }
 
     root.innerHTML = html;
 }
+
+/* ------------------------------------------------------------
+   WEEK SELECTION HANDLERS
+   ------------------------------------------------------------ */
+
+function parseYmd(ymd) {
+    if (!ymd || typeof ymd !== 'string') return new Date();
+    var parts = ymd.split('-');
+    if (parts.length !== 3) return new Date();
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    var d = parseInt(parts[2], 10);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return new Date();
+    return new Date(y, m, d);
+}
+
+function handleWeekDateChange(value) {
+    if (!value) return;
+    var picked = parseYmd(value);
+    var monday = getMondayOf(picked);
+    activeWeekStart = formatYmd(monday);
+
+    /* Close any open form when switching weeks */
+    choreFormState = null;
+    choreFormEditId = null;
+
+    /* Ensure an entry exists for this week (creates empty if new) */
+    ensureWeekEntry(activeWeekStart);
+
+    renderChoreSetupScreen();
+}
+
+function handleWeekContextChange(value) {
+    var entry = ensureWeekEntry(activeWeekStart);
+    entry.weekContext = value;
+    saveWeeklyChores(weeklyChoresData);
+}
+
+/* ------------------------------------------------------------
+   CHORE CRUD — WITHIN ACTIVE WEEK
+   ------------------------------------------------------------ */
+
+function getActiveWeekChores() {
+    var entry = getWeekEntry(activeWeekStart);
+    if (!entry) return [];
+    return entry.chores || [];
+}
+
+function getChoreFromActiveWeek(id) {
+    var chores = getActiveWeekChores();
+    for (var i = 0; i < chores.length; i++) {
+        if (chores[i].id === id) return chores[i];
+    }
+    return null;
+}
+
+function openAddChoreForm() {
+    choreFormState = 'add';
+    choreFormEditId = null;
+    renderChoreSetupScreen();
+}
+
+function openEditChoreForm(id) {
+    choreFormState = 'edit';
+    choreFormEditId = id;
+    renderChoreSetupScreen();
+}
+
+function openRemoveChoreConfirm(id) {
+    choreFormState = 'remove';
+    choreFormEditId = id;
+    renderChoreSetupScreen();
+}
+
+function closeChoreForm() {
+    choreFormState = null;
+    choreFormEditId = null;
+    renderChoreSetupScreen();
+}
+
+/* ------------------------------------------------------------
+   CHORE FORM HTML BUILDERS
+   ------------------------------------------------------------ */
 
 function buildChildCheckboxList(selectedIds) {
     if (childrenData.length === 0) {
@@ -627,207 +846,58 @@ function buildChildCheckboxList(selectedIds) {
     return html;
 }
 
-function showAddChoreForm() {
-    var root = ensureChoreSetupRoot();
-    if (!root) return;
+function buildChoreFormHtml(chore) {
+    var isEdit = !!chore;
+    var title = isEdit ? 'Edit Chore' : 'Add Chore';
+    var nameVal = isEdit ? chore.name : '';
+    var bucksVal = isEdit ? chore.momBucks : '';
+    var selectedIds = isEdit && Array.isArray(chore.assignedChildren) ? chore.assignedChildren : [];
 
-    if (childrenData.length === 0) {
-        renderChoreList();
-        return;
-    }
+    var saveHandler = isEdit
+        ? 'saveChoreForm(\'' + chore.id + '\')'
+        : 'saveChoreForm(null)';
 
-    root.innerHTML =
-        '<div class="section-title">' +
-            '<span>Add Chore</span>' +
-            '<span class="whimsical-shape star"></span>' +
-        '</div>' +
+    return (
+        '<div class="ui-card" style="margin-bottom:16px;">' +
+            '<div style="font-weight:700; font-size:0.95rem; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.3px;">' +
+                title +
+            '</div>' +
 
-        '<div class="context-input-card" style="margin-bottom:12px;">' +
-            '<label>Chore Name</label>' +
-            '<input id="chore-form-name" type="text" placeholder="e.g. Make Bed" ' +
-                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
-                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-        '</div>' +
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Chore Name</label>' +
+                '<input id="chore-form-name" type="text" placeholder="e.g. Make Bed" value="' + escapeHtml(nameVal) + '" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
 
-        '<div class="context-input-card" style="margin-bottom:12px;">' +
-            '<label>Mom Bucks</label>' +
-            '<input id="chore-form-bucks" type="number" min="0" step="1" placeholder="e.g. 20" ' +
-                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
-                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-        '</div>' +
+            '<div class="context-input-card" style="margin-bottom:10px;">' +
+                '<label>Mom Bucks</label>' +
+                '<input id="chore-form-bucks" type="number" min="0" step="1" placeholder="e.g. 20" value="' + (bucksVal === '' ? '' : bucksVal) + '" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+            '</div>' +
 
-        '<div class="copy-component" style="margin-bottom:12px;">' +
-            '<p>Assign To</p>' +
-            buildChildCheckboxList([]) +
-        '</div>' +
+            '<div class="copy-component" style="margin-bottom:10px;">' +
+                '<p>Assign To</p>' +
+                buildChildCheckboxList(selectedIds) +
+            '</div>' +
 
-        '<div id="chore-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
-            'font-weight:600; margin-bottom:10px;"></div>' +
+            '<div id="chore-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
+                'font-weight:600; margin-bottom:10px;"></div>' +
 
-        '<div style="display:flex; gap:10px;">' +
-            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
-                'border-color:var(--color-blue); color:#fff;" onclick="saveNewChore()">Save</button>' +
-            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
-                'onclick="renderChoreList()">Cancel</button>' +
-        '</div>';
-
-    var nameInput = document.getElementById('chore-form-name');
-    if (nameInput) nameInput.focus();
+            '<div style="display:flex; gap:10px;">' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
+                    'border-color:var(--color-blue); color:#fff;" onclick="' + saveHandler + '">Save</button>' +
+                '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
+                    'onclick="closeChoreForm()">Cancel</button>' +
+            '</div>' +
+        '</div>'
+    );
 }
 
-function readSelectedChildIds() {
-    var ids = [];
-    for (var i = 0; i < childrenData.length; i++) {
-        var cb = document.getElementById('chore-child-' + childrenData[i].id);
-        if (cb && cb.checked) {
-            ids.push(childrenData[i].id);
-        }
-    }
-    return ids;
-}
-
-function saveNewChore() {
-    var nameInput = document.getElementById('chore-form-name');
-    var bucksInput = document.getElementById('chore-form-bucks');
-
-    var name = nameInput ? nameInput.value.trim() : '';
-    var bucksRaw = bucksInput ? bucksInput.value.trim() : '';
-
-    if (name === '') {
-        showFormError('chore-form-error', 'Chore name cannot be blank.');
-        return;
-    }
-
-    if (bucksRaw === '') {
-        showFormError('chore-form-error', 'Mom Bucks is required.');
-        return;
-    }
-
-    var bucks = Number(bucksRaw);
-    if (isNaN(bucks) || !isFinite(bucks) || bucks < 0) {
-        showFormError('chore-form-error', 'Mom Bucks must be a valid number 0 or greater.');
-        return;
-    }
-    bucks = Math.floor(bucks);
-
-    var assigned = readSelectedChildIds();
-    if (assigned.length === 0) {
-        showFormError('chore-form-error', 'Please assign this chore to at least one child.');
-        return;
-    }
-
-    choresData.push({
-        id: generateChoreId(),
-        name: name,
-        momBucks: bucks,
-        assignedChildren: assigned
-    });
-
-    saveChores(choresData);
-    renderChoreList();
-}
-
-function showEditChoreForm(id) {
-    var chore = getChoreById(id);
-    if (!chore) return;
-
-    var root = ensureChoreSetupRoot();
-    if (!root) return;
-
-    root.innerHTML =
-        '<div class="section-title">' +
-            '<span>Edit Chore</span>' +
-            '<span class="whimsical-shape star"></span>' +
-        '</div>' +
-
-        '<div class="context-input-card" style="margin-bottom:12px;">' +
-            '<label>Chore Name</label>' +
-            '<input id="chore-form-name" type="text" value="' + escapeHtml(chore.name) + '" ' +
-                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
-                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-        '</div>' +
-
-        '<div class="context-input-card" style="margin-bottom:12px;">' +
-            '<label>Mom Bucks</label>' +
-            '<input id="chore-form-bucks" type="number" min="0" step="1" value="' + chore.momBucks + '" ' +
-                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
-                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
-        '</div>' +
-
-        '<div class="copy-component" style="margin-bottom:12px;">' +
-            '<p>Assign To</p>' +
-            buildChildCheckboxList(chore.assignedChildren || []) +
-        '</div>' +
-
-        '<div id="chore-form-error" style="display:none; color:var(--color-coral); font-size:0.8rem; ' +
-            'font-weight:600; margin-bottom:10px;"></div>' +
-
-        '<div style="display:flex; gap:10px;">' +
-            '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-blue); ' +
-                'border-color:var(--color-blue); color:#fff;" onclick="saveEditChore(\'' + chore.id + '\')">Save</button>' +
-            '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
-                'onclick="renderChoreList()">Cancel</button>' +
-        '</div>';
-
-    var nameInput = document.getElementById('chore-form-name');
-    if (nameInput) nameInput.focus();
-}
-
-function saveEditChore(id) {
-    var chore = getChoreById(id);
-    if (!chore) return;
-
-    var nameInput = document.getElementById('chore-form-name');
-    var bucksInput = document.getElementById('chore-form-bucks');
-
-    var name = nameInput ? nameInput.value.trim() : '';
-    var bucksRaw = bucksInput ? bucksInput.value.trim() : '';
-
-    if (name === '') {
-        showFormError('chore-form-error', 'Chore name cannot be blank.');
-        return;
-    }
-
-    if (bucksRaw === '') {
-        showFormError('chore-form-error', 'Mom Bucks is required.');
-        return;
-    }
-
-    var bucks = Number(bucksRaw);
-    if (isNaN(bucks) || !isFinite(bucks) || bucks < 0) {
-        showFormError('chore-form-error', 'Mom Bucks must be a valid number 0 or greater.');
-        return;
-    }
-    bucks = Math.floor(bucks);
-
-    var assigned = readSelectedChildIds();
-    if (assigned.length === 0) {
-        showFormError('chore-form-error', 'Please assign this chore to at least one child.');
-        return;
-    }
-
-    chore.name = name;
-    chore.momBucks = bucks;
-    chore.assignedChildren = assigned;
-
-    saveChores(choresData);
-    renderChoreList();
-}
-
-function showRemoveChoreConfirm(id) {
-    var chore = getChoreById(id);
-    if (!chore) return;
-
-    var root = ensureChoreSetupRoot();
-    if (!root) return;
-
-    root.innerHTML =
-        '<div class="section-title">' +
-            '<span>Remove Chore</span>' +
-            '<span class="whimsical-shape star"></span>' +
-        '</div>' +
-
-        '<div class="ui-card" style="margin-bottom:12px; border:2px solid var(--color-coral);">' +
+function buildChoreRemoveConfirmHtml(chore) {
+    return (
+        '<div class="ui-card" style="margin-bottom:16px; border:2px solid var(--color-coral);">' +
             '<div style="font-weight:700; font-size:1.05rem; margin-bottom:6px;">' +
                 'Remove this chore?' +
             '</div>' +
@@ -841,21 +911,106 @@ function showRemoveChoreConfirm(id) {
                 '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-coral); ' +
                     'border-color:var(--color-coral); color:#fff;" onclick="confirmRemoveChore(\'' + chore.id + '\')">Remove</button>' +
                 '<button class="btn-add-chore" style="margin-top:0; flex:1; border-style:solid;" ' +
-                    'onclick="renderChoreList()">Cancel</button>' +
+                    'onclick="closeChoreForm()">Cancel</button>' +
             '</div>' +
-        '</div>';
+        '</div>'
+    );
+}
+
+/* ------------------------------------------------------------
+   CHORE SAVE / REMOVE
+   ------------------------------------------------------------ */
+
+function readSelectedChildIds() {
+    var ids = [];
+    for (var i = 0; i < childrenData.length; i++) {
+        var cb = document.getElementById('chore-child-' + childrenData[i].id);
+        if (cb && cb.checked) {
+            ids.push(childrenData[i].id);
+        }
+    }
+    return ids;
+}
+
+function saveChoreForm(editId) {
+    var nameInput = document.getElementById('chore-form-name');
+    var bucksInput = document.getElementById('chore-form-bucks');
+
+    var name = nameInput ? nameInput.value.trim() : '';
+    var bucksRaw = bucksInput ? bucksInput.value.trim() : '';
+
+    if (name === '') {
+        showFormError('chore-form-error', 'Chore name cannot be blank.');
+        return;
+    }
+
+    if (bucksRaw === '') {
+        showFormError('chore-form-error', 'Mom Bucks is required.');
+        return;
+    }
+
+    var bucks = Number(bucksRaw);
+    if (isNaN(bucks) || !isFinite(bucks) || bucks < 0) {
+        showFormError('chore-form-error', 'Mom Bucks must be a valid number 0 or greater.');
+        return;
+    }
+    bucks = Math.floor(bucks);
+
+    var assigned = readSelectedChildIds();
+    if (assigned.length === 0) {
+        showFormError('chore-form-error', 'Please assign this chore to at least one child.');
+        return;
+    }
+
+    var entry = ensureWeekEntry(activeWeekStart);
+
+    if (editId) {
+        var chore = null;
+        for (var i = 0; i < entry.chores.length; i++) {
+            if (entry.chores[i].id === editId) {
+                chore = entry.chores[i];
+                break;
+            }
+        }
+        if (!chore) {
+            showFormError('chore-form-error', 'Chore not found.');
+            return;
+        }
+        chore.name = name;
+        chore.momBucks = bucks;
+        chore.assignedChildren = assigned;
+    } else {
+        entry.chores.push({
+            id: generateChoreId(),
+            name: name,
+            momBucks: bucks,
+            assignedChildren: assigned
+        });
+    }
+
+    saveWeeklyChores(weeklyChoresData);
+
+    choreFormState = null;
+    choreFormEditId = null;
+    renderChoreSetupScreen();
 }
 
 function confirmRemoveChore(id) {
-    var newData = [];
-    for (var i = 0; i < choresData.length; i++) {
-        if (choresData[i].id !== id) {
-            newData.push(choresData[i]);
+    var entry = getWeekEntry(activeWeekStart);
+    if (!entry) return;
+
+    var newChores = [];
+    for (var i = 0; i < entry.chores.length; i++) {
+        if (entry.chores[i].id !== id) {
+            newChores.push(entry.chores[i]);
         }
     }
-    choresData = newData;
-    saveChores(choresData);
-    renderChoreList();
+    entry.chores = newChores;
+    saveWeeklyChores(weeklyChoresData);
+
+    choreFormState = null;
+    choreFormEditId = null;
+    renderChoreSetupScreen();
 }
 
 /* ------------------------------------------------------------
@@ -892,8 +1047,9 @@ function updateParentMenuChildCount() {
    ------------------------------------------------------------ */
 
 function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
     var div = document.createElement('div');
-    div.appendChild(document.createTextNode(str));
+    div.appendChild(document.createTextNode(String(str)));
     return div.innerHTML;
 }
 
@@ -904,7 +1060,7 @@ function escapeHtml(str) {
 document.addEventListener('DOMContentLoaded', function () {
 
     childrenData = loadChildren();
-    choresData = loadChores();
+    weeklyChoresData = loadWeeklyChores();
 
     updateParentMenuChildCount();
 
@@ -930,10 +1086,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
-    /* Inject the Parent Hub back button immediately so it's present
-       even before switchView('parent-area') is called. */
     renderParentHubBackButton();
-
     syncHeaderWithChild();
 });
 
