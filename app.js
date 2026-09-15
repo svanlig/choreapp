@@ -6,6 +6,7 @@
      - Parent Hub → Confirm Completed Chores
      - Parent Hub → Record Spending Ledger
      - Parent Hub → Modify Security PIN
+     - Parent PIN gate (real verification)
      - Child Home → check-off chores (pending → confirmed)
      - Mom Bucks Ledger (earned + spent transactions)
      - Rewards Ledger screen with per-child view
@@ -40,7 +41,6 @@ function loadParentPin() {
     } catch (e) {
         /* ignore corrupt storage */
     }
-    /* Seed default PIN */
     saveParentPin(DEFAULT_PARENT_PIN);
     return DEFAULT_PARENT_PIN;
 }
@@ -50,6 +50,17 @@ function saveParentPin(pin) {
 }
 
 var parentPin = loadParentPin();
+
+/* ------------------------------------------------------------
+   PARENT PIN GATE STATE
+   ------------------------------------------------------------ */
+
+/* Whether the parent has successfully passed the PIN gate this session.
+   Reset on every page load and whenever the user leaves the parent area. */
+var parentUnlocked = false;
+
+/* In-page error message for the PIN screen. */
+var pinGateError = null;
 
 /* ------------------------------------------------------------
    CHILDREN DATA LAYER
@@ -333,6 +344,12 @@ function parseYmd(ymd) {
    ------------------------------------------------------------ */
 
 function switchView(viewName, btnElement) {
+    /* PIN GATE: block direct entry into parent-only screens unless unlocked */
+    if (viewName === 'parent-area' && !parentUnlocked) {
+        viewName = 'parent-pin';
+        btnElement = null;
+    }
+
     var screens = document.querySelectorAll('.app-screen');
     for (var i = 0; i < screens.length; i++) {
         screens[i].classList.remove('active');
@@ -379,6 +396,8 @@ function switchView(viewName, btnElement) {
         renderSpendingLedgerScreen();
     } else if (viewName === 'modify-pin') {
         renderModifyPinScreen();
+    } else if (viewName === 'parent-pin') {
+        renderParentPinScreen();
     } else if (viewName === 'parent-area') {
         renderParentHubBackButton();
     } else if (viewName === 'child-home') {
@@ -424,11 +443,113 @@ function handleSystemNav(viewName, navElement) {
 }
 
 /* ------------------------------------------------------------
-   EXISTING PROTOTYPE: PARENT PIN BYPASS
+   PARENT PIN SCREEN — REAL GATE
    ------------------------------------------------------------ */
 
-function demoBypassPIN() {
+function renderParentPinScreen() {
+    var existing = document.getElementById('screen-parent-pin');
+    if (!existing) return;
+
+    var html = '';
+
+    html +=
+        '<div class="pin-screen-layout">' +
+            '<div class="pin-header-icon">🔒</div>' +
+            '<h3>Enter Parent PIN</h3>' +
+            '<p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">Access to parent dashboard controls</p>' +
+
+            '<div class="context-input-card" style="margin-top:20px; text-align:left;">' +
+                '<label>Parent PIN</label>' +
+                '<input id="pin-gate-input" type="password" inputmode="numeric" maxlength="' + PIN_MAX_LENGTH + '" ' +
+                    'placeholder="' + PIN_MIN_LENGTH + '–' + PIN_MAX_LENGTH + ' digits" ' +
+                    'oninput="handlePinGateInput(this.value)" ' +
+                    'onkeydown="handlePinGateKeydown(event)" ' +
+                    'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                    'font-size:1.2rem; font-weight:700; letter-spacing:0.3em; color:var(--text-primary); ' +
+                    'outline:none; padding:6px 0;" />' +
+            '</div>' +
+
+            '<div id="pin-gate-error" style="display:' + (pinGateError ? 'block' : 'none') + '; ' +
+                'color: var(--color-coral); font-size:0.85rem; font-weight:700; margin-top:10px;">' +
+                (pinGateError ? escapeHtml(pinGateError) : '') +
+            '</div>' +
+
+            '<button class="btn-add-chore" style="margin-top:20px; width:100%; background:var(--color-blue); ' +
+                'border-color:var(--color-blue); color:#fff;" onclick="verifyParentPin()">Verify PIN</button>' +
+        '</div>';
+
+    existing.innerHTML = html;
+
+    var input = document.getElementById('pin-gate-input');
+    if (input) input.focus();
+}
+
+function handlePinGateInput(value) {
+    /* Only allow digits, up to max length */
+    var cleaned = String(value || '').replace(/\D/g, '').slice(0, PIN_MAX_LENGTH);
+    var input = document.getElementById('pin-gate-input');
+    if (input && input.value !== cleaned) {
+        input.value = cleaned;
+    }
+    /* Clear error as user types */
+    if (pinGateError) {
+        pinGateError = null;
+        var err = document.getElementById('pin-gate-error');
+        if (err) {
+            err.textContent = '';
+            err.style.display = 'none';
+        }
+    }
+}
+
+function handlePinGateKeydown(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        verifyParentPin();
+    }
+}
+
+function verifyParentPin() {
+    var input = document.getElementById('pin-gate-input');
+    var entered = input ? String(input.value).trim() : '';
+
+    if (entered === '') {
+        pinGateError = 'Please enter your PIN.';
+        renderParentPinScreen();
+        return;
+    }
+
+    if (!/^\d+$/.test(entered)) {
+        pinGateError = 'PIN must contain only digits.';
+        renderParentPinScreen();
+        return;
+    }
+
+    if (entered.length < PIN_MIN_LENGTH || entered.length > PIN_MAX_LENGTH) {
+        pinGateError = 'PIN must be ' + PIN_MIN_LENGTH + '–' + PIN_MAX_LENGTH + ' digits.';
+        renderParentPinScreen();
+        return;
+    }
+
+    if (entered !== parentPin) {
+        pinGateError = 'Incorrect PIN. Please try again.';
+        renderParentPinScreen();
+        return;
+    }
+
+    /* Success */
+    parentUnlocked = true;
+    pinGateError = null;
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
+}
+
+/* ------------------------------------------------------------
+   LOCK THE PARENT AREA WHEN LEAVING
+   ------------------------------------------------------------ */
+
+function lockParentArea() {
+    parentUnlocked = false;
+    pinGateError = null;
 }
 
 /* ------------------------------------------------------------
@@ -436,10 +557,13 @@ function demoBypassPIN() {
    ------------------------------------------------------------ */
 
 function goBackToParentHub() {
+    /* Only reachable while unlocked; keeps the flow consistent */
     switchView('parent-area', document.querySelectorAll('.btn-proto')[4]);
 }
 
 function goBackToParentPin() {
+    /* Leaving the Parent Hub re-locks the gate */
+    lockParentArea();
     switchView('parent-pin', document.querySelectorAll('.btn-proto')[3]);
 }
 
@@ -1852,7 +1976,7 @@ function confirmRemoveSpending(id) {
    MODIFY SECURITY PIN SCREEN
    ------------------------------------------------------------ */
 
-var modifyPinMessage = null; /* { type: 'success' | 'error', text: '...' } */
+var modifyPinMessage = null;
 
 function createModifyPinScreen() {
     var contentArea = document.querySelector('.app-content');
@@ -1881,7 +2005,6 @@ function renderModifyPinScreen() {
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
-    /* Success / error banner */
     if (modifyPinMessage) {
         var bannerColor = modifyPinMessage.type === 'success'
             ? 'var(--color-green)'
@@ -1944,7 +2067,6 @@ function savePin() {
     var newPin = newInput ? newInput.value.trim() : '';
     var confirmPin = confirmInput ? confirmInput.value.trim() : '';
 
-    /* Clear previous message */
     modifyPinMessage = null;
 
     if (current === '' || newPin === '' || confirmPin === '') {
@@ -1977,7 +2099,6 @@ function savePin() {
         return;
     }
 
-    /* Persist */
     parentPin = newPin;
     saveParentPin(parentPin);
 
@@ -2157,6 +2278,10 @@ document.addEventListener('DOMContentLoaded', function () {
     ledgerData = loadLedger();
     parentPin = loadParentPin();
 
+    /* Gate starts locked on every page load */
+    parentUnlocked = false;
+    pinGateError = null;
+
     updateParentMenuChildCount();
 
     var menuItems = document.querySelectorAll('.parent-menu-item');
@@ -2204,6 +2329,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     renderParentHubBackButton();
+
+    /* Render the actual PIN gate on first load of parent-pin screen */
+    renderParentPinScreen();
 
     renderChildHome();
     renderRewardsLedger();
