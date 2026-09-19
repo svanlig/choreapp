@@ -1995,10 +1995,6 @@ function renderChoreSetupScreen() {
                 '</div>';
         }
     }
-
-    root.innerHTML = html;
-}
-
     root.innerHTML = html;
 }
 
