@@ -286,6 +286,61 @@ function ensureWeekEntry(weekStart) {
     return entry;
 }
 
+/* ------------------------------------------------------------
+   ARCHIVED CHORES DATA LAYER
+   Each archived template:
+   {
+     id: "archived_...",
+     name: "Clean Garage",
+     momBucks: 50,
+     archivedAt: "YYYY-MM-DD"
+   }
+   ------------------------------------------------------------ */
+
+function generateArchivedId() {
+    return 'archived_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+function loadArchivedChores() {
+    try {
+        var raw = localStorage.getItem(ARCHIVED_CHORES_STORAGE_KEY);
+        if (raw) {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                var normalised = [];
+                for (var i = 0; i < parsed.length; i++) {
+                    var a = parsed[i];
+                    if (a && typeof a === 'object' && a.id && typeof a.name === 'string') {
+                        normalised.push({
+                            id: a.id,
+                            name: String(a.name),
+                            momBucks: typeof a.momBucks === 'number' ? a.momBucks : 0,
+                            archivedAt: a.archivedAt ? String(a.archivedAt) : ''
+                        });
+                    }
+                }
+                return normalised;
+            }
+        }
+    } catch (e) {
+        /* ignore corrupt storage */
+    }
+    return [];
+}
+
+function saveArchivedChores(list) {
+    localStorage.setItem(ARCHIVED_CHORES_STORAGE_KEY, JSON.stringify(list));
+}
+
+var archivedChoresData = loadArchivedChores();
+
+function getArchivedById(id) {
+    for (var i = 0; i < archivedChoresData.length; i++) {
+        if (archivedChoresData[i].id === id) return archivedChoresData[i];
+    }
+    return null;
+}
+
 function getChildNamesForIds(ids) {
     var names = [];
     if (!Array.isArray(ids)) return names;
