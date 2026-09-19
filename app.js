@@ -1823,6 +1823,19 @@ function renderChoreSetupScreen() {
                 'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
                 'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
         '</div>';
+     
+    var momBuckValueStr = entry && typeof entry.momBuckValue === 'string' ? entry.momBuckValue : '';
+
+    html +=
+        '<div class="context-input-card" style="margin-bottom:16px;">' +
+            '<label>1 Mom Buck =</label>' +
+            '<input id="week-mom-buck-value-input" type="text" ' +
+                'placeholder="e.g. $1, 10 minutes of rest, one ice cream" ' +
+                'value="' + escapeHtml(momBuckValueStr) + '" ' +
+                'oninput="handleWeekMomBuckValueChange(this.value)" ' +
+                'style="width:100%; border:none; background:transparent; font-family:\'Quicksand\',sans-serif; ' +
+                'font-size:0.95rem; font-weight:600; color:var(--text-primary); outline:none; padding:4px 0;" />' +
+        '</div>';
 
     if (childrenData.length === 0) {
         html +=
