@@ -2153,6 +2153,28 @@ function renderChildHome() {
     var child = getActiveChild();
 
     var html = '';
+   /* Weekly info read-only display, sourced from the current week's
+   Weekly Chore Slate entry. No inputs, no new state. */
+    var weekEntry = getWeekEntry(activeWeekStart);
+    var weekContextText = weekEntry && weekEntry.weekContext ? weekEntry.weekContext : '';
+
+    html +=
+        '<div class="context-input-card" style="margin-bottom:12px;">' +
+            '<label>Week of</label>' +
+            '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);">' +
+                escapeHtml(formatWeekLabel(activeWeekStart)) +
+            '</div>' +
+        '</div>';
+
+    if (weekContextText) {
+        html +=
+            '<div class="context-input-card" style="margin-bottom:12px;">' +
+                '<label>What\'s Happening This Week</label>' +
+                '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);">' +
+                    escapeHtml(weekContextText) +
+                '</div>' +
+            '</div>';
+    }
 
     if (childrenData.length > 1) {
         html +=
