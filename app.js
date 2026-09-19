@@ -1941,7 +1941,7 @@ function renderChoreSetupScreen() {
                 ? assignedNames.join(', ')
                 : 'No children assigned';
 
-            html +=
+                       html +=
                 '<div class="setup-chore-row" style="flex-direction:column; align-items:stretch; gap:8px;">' +
                     '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                         '<div class="setup-chore-info">' +
@@ -1950,6 +1950,7 @@ function renderChoreSetupScreen() {
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
                             '<div class="control-pill" onclick="openEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
+                            '<div class="control-pill" onclick="archiveChore(\'' + chore.id + '\')">Archive</div>' +
                             '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="openRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
                         '</div>' +
                     '</div>' +
