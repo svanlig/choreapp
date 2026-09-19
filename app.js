@@ -1927,6 +1927,12 @@ function handleWeekDateChange(value) {
     renderChoreSetupScreen();
 }
 
+function handleWeekMomBuckValueChange(value) {
+    var entry = ensureWeekEntry(activeWeekStart);
+    entry.momBuckValue = value;
+    saveWeeklyChores(weeklyChoresData);
+}
+
 function handleWeekContextChange(value) {
     var entry = ensureWeekEntry(activeWeekStart);
     entry.weekContext = value;
