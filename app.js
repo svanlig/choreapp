@@ -286,61 +286,6 @@ function ensureWeekEntry(weekStart) {
     return entry;
 }
 
-/* ------------------------------------------------------------
-   ARCHIVED CHORES DATA LAYER
-   Each archived template:
-   {
-     id: "archived_...",
-     name: "Clean Garage",
-     momBucks: 50,
-     archivedAt: "YYYY-MM-DD"
-   }
-   ------------------------------------------------------------ */
-
-function generateArchivedId() {
-    return 'archived_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
-
-function loadArchivedChores() {
-    try {
-        var raw = localStorage.getItem(ARCHIVED_CHORES_STORAGE_KEY);
-        if (raw) {
-            var parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) {
-                var normalised = [];
-                for (var i = 0; i < parsed.length; i++) {
-                    var a = parsed[i];
-                    if (a && typeof a === 'object' && a.id && typeof a.name === 'string') {
-                        normalised.push({
-                            id: a.id,
-                            name: String(a.name),
-                            momBucks: typeof a.momBucks === 'number' ? a.momBucks : 0,
-                            archivedAt: a.archivedAt ? String(a.archivedAt) : ''
-                        });
-                    }
-                }
-                return normalised;
-            }
-        }
-    } catch (e) {
-        /* ignore corrupt storage */
-    }
-    return [];
-}
-
-function saveArchivedChores(list) {
-    localStorage.setItem(ARCHIVED_CHORES_STORAGE_KEY, JSON.stringify(list));
-}
-
-var archivedChoresData = loadArchivedChores();
-
-function getArchivedById(id) {
-    for (var i = 0; i < archivedChoresData.length; i++) {
-        if (archivedChoresData[i].id === id) return archivedChoresData[i];
-    }
-    return null;
-}
-
 function getChildNamesForIds(ids) {
     var names = [];
     if (!Array.isArray(ids)) return names;
@@ -1797,6 +1742,7 @@ function confirmRemoveChild(id) {
 /* ------------------------------------------------------------
    WEEKLY CHORE SLATE SCREEN
    ------------------------------------------------------------ */
+
 var activeWeekStart = formatYmd(getMondayOf(new Date()));
 
 var choreFormState = null;
@@ -1940,7 +1886,7 @@ function renderChoreSetupScreen() {
                 ? assignedNames.join(', ')
                 : 'No children assigned';
 
-                       html +=
+            html +=
                 '<div class="setup-chore-row" style="flex-direction:column; align-items:stretch; gap:8px;">' +
                     '<div style="display:flex; justify-content:space-between; align-items:center;">' +
                         '<div class="setup-chore-info">' +
@@ -1949,7 +1895,6 @@ function renderChoreSetupScreen() {
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
                             '<div class="control-pill" onclick="openEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
-                            '<div class="control-pill" onclick="archiveChore(\'' + chore.id + '\')">Archive</div>' +
                             '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="openRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
                         '</div>' +
                     '</div>' +
@@ -1960,39 +1905,9 @@ function renderChoreSetupScreen() {
         }
     }
 
-       if (choreFormState !== 'add') {
+    if (choreFormState !== 'add') {
         html +=
             '<button class="btn-add-chore" onclick="openAddChoreForm()">+ Add Chore</button>';
-    }
-
-    /* Archived chore templates — reusable, not part of any week. */
-    if (archivedChoresData.length > 0) {
-        html +=
-            '<div class="section-title" style="margin-top:24px;">' +
-                '<span>Archived Chores</span>' +
-            '</div>';
-
-        for (var ai = 0; ai < archivedChoresData.length; ai++) {
-            var arc = archivedChoresData[ai];
-
-            html +=
-                '<div class="setup-chore-row" style="flex-direction:column; align-items:stretch; gap:8px;">' +
-                    '<div style="display:flex; justify-content:space-between; align-items:center;">' +
-                        '<div class="setup-chore-info">' +
-                            '<font>' + escapeHtml(arc.name) + '</font>' +
-                            '<span>' + arc.momBucks + ' Mom Bucks</span>' +
-                        '</div>' +
-                        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
-                            '<div class="control-pill" style="background:var(--color-blue); color:#fff; border-color:var(--color-blue);" ' +
-                                'onclick="useArchivedChore(\'' + arc.id + '\')">Use This Chore</div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">' +
-                        'Archived template' +
-                        (arc.archivedAt ? ' · ' + escapeHtml(formatPrettyDateShort(arc.archivedAt)) : '') +
-                    '</div>' +
-                '</div>';
-        }
     }
 
     root.innerHTML = html;
@@ -2229,61 +2144,6 @@ function saveChoreForm(editId) {
     renderChoreSetupScreen();
 }
 
-/* Move a chore from the active week's slate into archived templates. */
-function archiveChore(id) {
-    var entry = getWeekEntry(activeWeekStart);
-    if (!entry) return;
-
-    var chore = null;
-    var keepChores = [];
-    for (var i = 0; i < entry.chores.length; i++) {
-        if (entry.chores[i].id === id) {
-            chore = entry.chores[i];
-        } else {
-            keepChores.push(entry.chores[i]);
-        }
-    }
-    if (!chore) return;
-
-    /* Remove from the active week */
-    entry.chores = keepChores;
-    saveWeeklyChores(weeklyChoresData);
-
-    /* Save a fresh archived template — fresh id, copy of name + momBucks.
-       Assignments are deliberately NOT copied, because an archived template
-       is a general reusable chore, not tied to specific children. */
-    archivedChoresData.push({
-        id: generateArchivedId(),
-        name: chore.name,
-        momBucks: chore.momBucks,
-        archivedAt: formatYmd(new Date())
-    });
-    saveArchivedChores(archivedChoresData);
-
-    renderChoreSetupScreen();
-}
-
-/* Create a new active chore in the current week from an archived template.
-   Does not modify the archived template. */
-function useArchivedChore(archivedId) {
-    var arc = getArchivedById(archivedId);
-    if (!arc) return;
-
-    var entry = ensureWeekEntry(activeWeekStart);
-    entry.chores.push({
-        id: generateChoreId(),
-        name: arc.name,
-        momBucks: arc.momBucks,
-        assignedChildren: []
-    });
-    saveWeeklyChores(weeklyChoresData);
-
-    renderChoreSetupScreen();
-}
-
-function confirmRemoveChore(id) {
-
-
 function confirmRemoveChore(id) {
     var entry = getWeekEntry(activeWeekStart);
     if (!entry) return;
@@ -2311,7 +2171,6 @@ function confirmRemoveChore(id) {
     choreFormEditId = null;
     renderChoreSetupScreen();
 }
-
 
 /* ------------------------------------------------------------
    CHILD HOME
