@@ -2731,44 +2731,128 @@ function renderSpendingLedgerScreen() {
             '<span>Transaction History</span>' +
         '</div>';
 
-    var entries = getLedgerForChild(child.id);
+    var allEntries = getLedgerForChild(child.id);
 
-    if (entries.length === 0) {
+    if (allEntries.length === 0) {
         html +=
-            '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
+            '<div class="ui-card" style="text-align:center; color: var(--color-muted, var(--text-muted));">' +
                 '<p>No transactions yet for this child.</p>' +
             '</div>';
         root.innerHTML = html;
         return;
     }
 
-    html += '<div class="ui-card"><div class="ledger-list">';
-    for (var k = 0; k < entries.length; k++) {
-        var tx = entries[k];
-        var isEarned = tx.type === 'earned';
-        var amountClass = isEarned ? 'plus' : 'minus';
-        var amountPrefix = isEarned ? '+' : '-';
+    /* Bucket by week, then by month. */
+    var weekGroups = groupLedgerByWeek(allEntries);
+    var monthGroups = groupWeeksByMonth(weekGroups);
+
+    /* Determine which month to show. Default = newest month with data. */
+    var activeKey = spendingHistoryMonthKey;
+    var foundActive = false;
+    for (var mk = 0; mk < monthGroups.length; mk++) {
+        if (monthGroups[mk].key === activeKey) { foundActive = true; break; }
+    }
+    if (!foundActive) {
+        activeKey = monthGroups[0].key;
+        spendingHistoryMonthKey = activeKey;
+    }
+
+    var activeMonth = null;
+    var activeIdx = 0;
+    for (var am = 0; am < monthGroups.length; am++) {
+        if (monthGroups[am].key === activeKey) {
+            activeMonth = monthGroups[am];
+            activeIdx = am;
+            break;
+        }
+    }
+
+    var hasNewerMonth = activeIdx > 0;
+    var hasOlderMonth = activeIdx < monthGroups.length - 1;
+    var activeLabel = MONTH_NAMES[activeMonth.month] + ' ' + activeMonth.year;
+
+    html +=
+        '<div class="section-title" style="margin-top:0;">' +
+            '<div style="display:flex; align-items:center; gap:10px;">' +
+                '<div class="control-pill" style="cursor:pointer;' +
+                    (hasOlderMonth ? '' : ' opacity:0.35; pointer-events:none;') + '" ' +
+                    'onclick="shiftSpendingHistoryMonth(1)">←</div>' +
+                '<span>' + escapeHtml(activeLabel) + '</span>' +
+                '<div class="control-pill" style="cursor:pointer;' +
+                    (hasNewerMonth ? '' : ' opacity:0.35; pointer-events:none;') + '" ' +
+                    'onclick="shiftSpendingHistoryMonth(-1)">→</div>' +
+            '</div>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    for (var wk = 0; wk < activeMonth.weeks.length; wk++) {
+        var wg = activeMonth.weeks[wk];
+
+        /* Historical weekly context and Mom Buck value come from that
+           week's own entry in weeklyChores, so editing the current week
+           never changes the historical snapshot. */
+        var weekEntry = getWeekEntry(wg.weekStart);
+        var weekCtx = weekEntry && weekEntry.weekContext ? weekEntry.weekContext : '';
+        var weekMomBuckValue = weekEntry && typeof weekEntry.momBuckValue === 'string'
+            ? weekEntry.momBuckValue
+            : '';
 
         html +=
-            '<div class="ledger-row">' +
-                '<div class="ledger-info">' +
-                    '<p>' + escapeHtml(tx.description) + '</p>' +
-                    '<span>' + escapeHtml(formatPrettyDateShort(tx.date)) + '</span>' +
-                '</div>' +
-                '<div style="display:flex; align-items:center; gap:10px;">' +
-                    '<div class="ledger-amount ' + amountClass + '">' +
-                        amountPrefix + tx.amount +
-                    '</div>' +
-                    '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
-                        'onclick="openSpendingRemove(\'' + tx.id + '\')">Remove</div>' +
-                '</div>' +
+            '<div class="section-title" style="margin-top:16px;">' +
+                '<span>' + escapeHtml(formatWeekLabel(wg.weekStart)) + '</span>' +
             '</div>';
+
+        if (weekCtx || weekMomBuckValue) {
+            html +=
+                '<div class="context-input-card" style="margin-bottom:8px;">';
+
+            if (weekCtx) {
+                html +=
+                    '<label>What\'s Happening This Week</label>' +
+                    '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);' +
+                        (weekMomBuckValue ? ' margin-bottom:8px;' : '') + '">' +
+                        escapeHtml(weekCtx) +
+                    '</div>';
+            }
+
+            if (weekMomBuckValue) {
+                html +=
+                    '<label>1 Mom Buck =</label>' +
+                    '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);">' +
+                        escapeHtml(weekMomBuckValue) +
+                    '</div>';
+            }
+
+            html += '</div>';
+        }
+
+        html += '<div class="ui-card"><div class="ledger-list">';
+        for (var ex = 0; ex < wg.entries.length; ex++) {
+            var tx2 = wg.entries[ex];
+            var isEarned2 = tx2.type === 'earned';
+            var amountClass2 = isEarned2 ? 'plus' : 'minus';
+            var amountPrefix2 = isEarned2 ? '+' : '-';
+
+            html +=
+                '<div class="ledger-row">' +
+                    '<div class="ledger-info">' +
+                        '<p>' + escapeHtml(tx2.description) + '</p>' +
+                        '<span>' + escapeHtml(formatPrettyDateShort(tx2.date)) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; align-items:center; gap:10px;">' +
+                        '<div class="ledger-amount ' + amountClass2 + '">' +
+                            amountPrefix2 + tx2.amount +
+                        '</div>' +
+                        '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
+                            'onclick="openSpendingRemove(\'' + tx2.id + '\')">Remove</div>' +
+                    '</div>' +
+                '</div>';
+        }
+        html += '</div></div>';
     }
-    html += '</div></div>';
 
     root.innerHTML = html;
 }
-
 function handleSpendingChildChange(childId) {
     spendingViewChildId = childId;
     spendingFormState = null;
