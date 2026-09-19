@@ -1960,12 +1960,12 @@ function renderChoreSetupScreen() {
         }
     }
 
-      if (choreFormState !== 'add') {
+       if (choreFormState !== 'add') {
         html +=
             '<button class="btn-add-chore" onclick="openAddChoreForm()">+ Add Chore</button>';
     }
 
-       /* Archived chore templates — reusable, not part of any week. */
+    /* Archived chore templates — reusable, not part of any week. */
     if (archivedChoresData.length > 0) {
         html +=
             '<div class="section-title" style="margin-top:24px;">' +
