@@ -2570,6 +2570,10 @@ var spendingViewChildId = null;
 var spendingFormState = null;
 var spendingFormRemoveId = null;
 
+/* Month currently being viewed in the Transaction History section.
+   null = "follow the newest month that has data". */
+var spendingHistoryMonthKey = null;
+
 function createSpendingLedgerScreen() {
     var contentArea = document.querySelector('.app-content');
     if (!contentArea) return null;
