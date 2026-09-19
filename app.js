@@ -2233,6 +2233,61 @@ function saveChoreForm(editId) {
     renderChoreSetupScreen();
 }
 
+/* Move a chore from the active week's slate into archived templates. */
+function archiveChore(id) {
+    var entry = getWeekEntry(activeWeekStart);
+    if (!entry) return;
+
+    var chore = null;
+    var keepChores = [];
+    for (var i = 0; i < entry.chores.length; i++) {
+        if (entry.chores[i].id === id) {
+            chore = entry.chores[i];
+        } else {
+            keepChores.push(entry.chores[i]);
+        }
+    }
+    if (!chore) return;
+
+    /* Remove from the active week */
+    entry.chores = keepChores;
+    saveWeeklyChores(weeklyChoresData);
+
+    /* Save a fresh archived template — fresh id, copy of name + momBucks.
+       Assignments are deliberately NOT copied, because an archived template
+       is a general reusable chore, not tied to specific children. */
+    archivedChoresData.push({
+        id: generateArchivedId(),
+        name: chore.name,
+        momBucks: chore.momBucks,
+        archivedAt: formatYmd(new Date())
+    });
+    saveArchivedChores(archivedChoresData);
+
+    renderChoreSetupScreen();
+}
+
+/* Create a new active chore in the current week from an archived template.
+   Does not modify the archived template. */
+function useArchivedChore(archivedId) {
+    var arc = getArchivedById(archivedId);
+    if (!arc) return;
+
+    var entry = ensureWeekEntry(activeWeekStart);
+    entry.chores.push({
+        id: generateChoreId(),
+        name: arc.name,
+        momBucks: arc.momBucks,
+        assignedChildren: []
+    });
+    saveWeeklyChores(weeklyChoresData);
+
+    renderChoreSetupScreen();
+}
+
+function confirmRemoveChore(id) {
+
+
 function confirmRemoveChore(id) {
     var entry = getWeekEntry(activeWeekStart);
     if (!entry) return;
@@ -2260,6 +2315,7 @@ function confirmRemoveChore(id) {
     choreFormEditId = null;
     renderChoreSetupScreen();
 }
+
 
 /* ------------------------------------------------------------
    CHILD HOME
