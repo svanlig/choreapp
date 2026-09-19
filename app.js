@@ -2955,10 +2955,13 @@ function shiftSpendingHistoryMonth(direction) {
     spendingHistoryMonthKey = monthGroups[nextIdx].key;
     renderSpendingLedgerScreen();
 }
+
 function handleSpendingChildChange(childId) {
     spendingViewChildId = childId;
     spendingFormState = null;
     spendingFormRemoveId = null;
+    /* Reset the history view to the newest month for the newly selected child. */
+    spendingHistoryMonthKey = null;
     renderSpendingLedgerScreen();
 }
 
