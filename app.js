@@ -254,7 +254,32 @@ function getWeekEntry(weekStart) {
 function ensureWeekEntry(weekStart) {
     var entry = getWeekEntry(weekStart);
     if (!entry) {
-        entry = { weekStart: weekStart, weekContext: '', chores: [] };
+        /* Find the most recent week strictly earlier than this one,
+           to carry forward its momBuckValue (if any). If no earlier
+           week exists, or it has no value, start blank. */
+        var previousValue = '';
+        var latestEarlierStart = null;
+        for (var i = 0; i < weeklyChoresData.length; i++) {
+            var w = weeklyChoresData[i];
+            if (!w || !w.weekStart) continue;
+            if (w.weekStart >= weekStart) continue;
+            if (latestEarlierStart === null || w.weekStart > latestEarlierStart) {
+                latestEarlierStart = w.weekStart;
+            }
+        }
+        if (latestEarlierStart !== null) {
+            var prevEntry = getWeekEntry(latestEarlierStart);
+            if (prevEntry && typeof prevEntry.momBuckValue === 'string') {
+                previousValue = prevEntry.momBuckValue;
+            }
+        }
+
+        entry = {
+            weekStart: weekStart,
+            weekContext: '',
+            momBuckValue: previousValue,
+            chores: []
+        };
         weeklyChoresData.push(entry);
         saveWeeklyChores(weeklyChoresData);
     }
