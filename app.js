@@ -2857,6 +2857,104 @@ function renderSpendingLedgerScreen() {
 
     root.innerHTML = html;
 }
+/* Return an array of week-groups for the given ledger entries,
+   bucketed by the Monday of the week each entry's date falls in.
+   Each group: { weekStart: "YYYY-MM-DD", entries: [...] }.
+   Groups are sorted newest week first; entries within a week are
+   sorted newest day first. */
+function groupLedgerByWeek(entries) {
+    var groups = [];
+    for (var i = 0; i < entries.length; i++) {
+        var tx = entries[i];
+        /* Use the tx's own date to find the week it belongs to, so
+           earning and spending entries from the same week are grouped
+           together. Fall back to tx.weekStart if date is missing. */
+        var anchor = tx.date || tx.weekStart;
+        if (!anchor) continue;
+        var weekStart = formatYmd(getMondayOf(parseYmd(anchor)));
+
+        var group = null;
+        for (var g = 0; g < groups.length; g++) {
+            if (groups[g].weekStart === weekStart) {
+                group = groups[g];
+                break;
+            }
+        }
+        if (!group) {
+            group = { weekStart: weekStart, entries: [] };
+            groups.push(group);
+        }
+        group.entries.push(tx);
+    }
+
+    /* Sort groups newest week first */
+    groups.sort(function (a, b) {
+        if (a.weekStart > b.weekStart) return -1;
+        if (a.weekStart < b.weekStart) return 1;
+        return 0;
+    });
+
+    /* Sort entries inside each group newest day first */
+    for (var g2 = 0; g2 < groups.length; g2++) {
+        groups[g2].entries.sort(function (a, b) {
+            if (a.date > b.date) return -1;
+            if (a.date < b.date) return 1;
+            if (a.id > b.id) return -1;
+            if (a.id < b.id) return 1;
+            return 0;
+        });
+    }
+
+    return groups;
+}
+
+/* Group week-groups further by calendar month, keyed by
+   "YYYY-MM" of the week's Monday, newest month first. */
+function groupWeeksByMonth(groups) {
+    var months = [];
+    for (var i = 0; i < groups.length; i++) {
+        var g = groups[i];
+        var d = parseYmd(g.weekStart);
+        var key = d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+        var bucket = null;
+        for (var m = 0; m < months.length; m++) {
+            if (months[m].key === key) { bucket = months[m]; break; }
+        }
+        if (!bucket) {
+            bucket = { key: key, year: d.getFullYear(), month: d.getMonth(), weeks: [] };
+            months.push(bucket);
+        }
+        bucket.weeks.push(g);
+    }
+    months.sort(function (a, b) {
+        if (a.key > b.key) return -1;
+        if (a.key < b.key) return 1;
+        return 0;
+    });
+    return months;
+}
+
+/* Move the Transaction History view by one month.
+   direction: +1 = older, -1 = newer. Bounded to months that have data. */
+function shiftSpendingHistoryMonth(direction) {
+    var child = getSpendingViewChild();
+    if (!child) return;
+
+    var allEntries = getLedgerForChild(child.id);
+    var monthGroups = groupWeeksByMonth(groupLedgerByWeek(allEntries));
+    if (monthGroups.length === 0) return;
+
+    var idx = 0;
+    for (var i = 0; i < monthGroups.length; i++) {
+        if (monthGroups[i].key === spendingHistoryMonthKey) { idx = i; break; }
+    }
+    var nextIdx = idx + direction;
+    if (nextIdx < 0) nextIdx = 0;
+    if (nextIdx > monthGroups.length - 1) nextIdx = monthGroups.length - 1;
+
+    spendingHistoryMonthKey = monthGroups[nextIdx].key;
+    renderSpendingLedgerScreen();
+}
 function handleSpendingChildChange(childId) {
     spendingViewChildId = childId;
     spendingFormState = null;
