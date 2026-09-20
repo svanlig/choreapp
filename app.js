@@ -2426,7 +2426,7 @@ function renderChildHome() {
 
     html +=
         '<div class="section-title">' +
-            '<span>Today\'s Plan</span>' +
+            '<span>' + formatPrettyDateLong(new Date()) + '</span>' +
             '<span class="whimsical-shape star"></span>' +
         '</div>';
 
