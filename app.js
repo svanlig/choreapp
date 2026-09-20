@@ -2203,6 +2203,41 @@ function saveChoreForm(editId) {
     renderChoreSetupScreen();
 }
 
+/* Move a chore from the active week's slate into archived templates.
+   Does not touch completions or ledger records. */
+function archiveChore(id) {
+    var entry = getWeekEntry(activeWeekStart);
+    if (!entry) return;
+
+    var chore = null;
+    var keepChores = [];
+    for (var i = 0; i < entry.chores.length; i++) {
+        if (entry.chores[i].id === id) {
+            chore = entry.chores[i];
+        } else {
+            keepChores.push(entry.chores[i]);
+        }
+    }
+    if (!chore) return;
+
+    /* Remove from the active week */
+    entry.chores = keepChores;
+    saveWeeklyChores(weeklyChoresData);
+
+    /* Save a fresh archived template. Assignments are deliberately not
+       copied, because a template is a general reusable chore, not tied
+       to specific children or weeks. */
+    archivedChoresData.push({
+        id: generateArchivedId(),
+        name: chore.name,
+        momBucks: chore.momBucks,
+        archivedAt: formatYmd(new Date())
+    });
+    saveArchivedChores(archivedChoresData);
+
+    renderChoreSetupScreen();
+}
+
 function confirmRemoveChore(id) {
     var entry = getWeekEntry(activeWeekStart);
     if (!entry) return;
