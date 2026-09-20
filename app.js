@@ -3747,6 +3747,8 @@ function renderRewardsLedger() {
 
 function handleRewardsChildChange(childId) {
     rewardsViewChildId = childId;
+    /* Reset the history view to the newest month for the newly selected child. */
+    rewardsHistoryMonthKey = null;
     renderRewardsLedger();
 }
 
