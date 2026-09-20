@@ -2986,20 +2986,17 @@ function renderSpendingLedgerScreen() {
         }
     }
 
-    var hasNewerMonth = activeIdx > 0;
-    var hasOlderMonth = activeIdx < monthGroups.length - 1;
     var activeLabel = MONTH_NAMES[activeMonth.month] + ' ' + activeMonth.year;
+    var activeMonthInputValue = activeMonth.year + '-' + pad2(activeMonth.month + 1);
 
     html +=
         '<div class="section-title" style="margin-top:0;">' +
             '<div style="display:flex; align-items:center; gap:10px;">' +
-                '<div class="control-pill" style="cursor:pointer;' +
-                    (hasOlderMonth ? '' : ' opacity:0.35; pointer-events:none;') + '" ' +
-                    'onclick="shiftSpendingHistoryMonth(1)">←</div>' +
-                '<span>' + escapeHtml(activeLabel) + '</span>' +
-                '<div class="control-pill" style="cursor:pointer;' +
-                    (hasNewerMonth ? '' : ' opacity:0.35; pointer-events:none;') + '" ' +
-                    'onclick="shiftSpendingHistoryMonth(-1)">→</div>' +
+                '<input id="spending-month-picker" type="month" value="' + activeMonthInputValue + '" ' +
+                    'onchange="handleSpendingMonthPickerChange(this.value)" ' +
+                    'style="border:1px solid var(--text-primary); background:var(--color-white); ' +
+                    'font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; ' +
+                    'color:var(--text-primary); outline:none; padding:4px 8px; border-radius:8px;" />' +
             '</div>' +
             '<span class="whimsical-shape star"></span>' +
         '</div>';
