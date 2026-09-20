@@ -3588,14 +3588,14 @@ function renderRewardsLedger() {
             '<div style="font-weight:700; font-size:1.4rem;">' + child.momBucks + '</div>' +
         '</div>';
 
-    html +=
+        html +=
         '<div class="section-title">' +
             '<span>Mom Bucks History</span>' +
         '</div>';
 
-    var entries = getLedgerForChild(child.id);
+    var allEntries = getLedgerForChild(child.id);
 
-    if (entries.length === 0) {
+    if (allEntries.length === 0) {
         html +=
             '<div class="ui-card" style="text-align:center; color: var(--text-muted);">' +
                 '<p>No Mom Bucks earned yet.</p>' +
@@ -3604,25 +3604,143 @@ function renderRewardsLedger() {
         return;
     }
 
-    html += '<div class="ui-card"><div class="ledger-list">';
-    for (var k = 0; k < entries.length; k++) {
-        var tx = entries[k];
-        var isEarned = tx.type === 'earned';
-        var amountClass = isEarned ? 'plus' : 'minus';
-        var amountPrefix = isEarned ? '+' : '-';
+    /* Group by week, then by month. Same helpers used by the parent view. */
+    var weekGroups = groupLedgerByWeek(allEntries);
+    var monthGroups = groupWeeksByMonth(weekGroups);
+
+    /* Determine which month to show. Default = newest month with data.
+       If a chosen month has no data, fall back to the newest (snap-back
+       behavior, matching the parent view). */
+    var activeKey = rewardsHistoryMonthKey;
+    var foundActive = false;
+    for (var mk = 0; mk < monthGroups.length; mk++) {
+        if (monthGroups[mk].key === activeKey) { foundActive = true; break; }
+    }
+    if (!foundActive) {
+        activeKey = monthGroups[0].key;
+        rewardsHistoryMonthKey = activeKey;
+    }
+
+    var activeMonth = null;
+    for (var am = 0; am < monthGroups.length; am++) {
+        if (monthGroups[am].key === activeKey) {
+            activeMonth = monthGroups[am];
+            break;
+        }
+    }
+
+    var activeMonthInputValue = activeMonth.year + '-' + pad2(activeMonth.month + 1);
+
+    /* Month picker header */
+    html +=
+        '<div class="section-title" style="margin-top:0;">' +
+            '<div style="display:flex; align-items:center; gap:10px;">' +
+                '<input id="rewards-month-picker" type="month" value="' + activeMonthInputValue + '" ' +
+                    'onchange="handleRewardsMonthPickerChange(this.value)" ' +
+                    'style="border:1px solid var(--text-primary); background:var(--color-white); ' +
+                    'font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; ' +
+                    'color:var(--text-primary); outline:none; padding:4px 8px; border-radius:8px;" />' +
+            '</div>' +
+            '<span class="whimsical-shape star"></span>' +
+        '</div>';
+
+    /* Render each week-group inside the active month. */
+    for (var wk = 0; wk < activeMonth.weeks.length; wk++) {
+        var wg = activeMonth.weeks[wk];
+
+        /* Historical weekly context and Mom Buck value come from that
+           week's own entry in weeklyChores. Read-only for the child. */
+        var weekEntry = getWeekEntry(wg.weekStart);
+        var weekCtx = weekEntry && weekEntry.weekContext ? weekEntry.weekContext : '';
+        var weekMomBuckValue = weekEntry && typeof weekEntry.momBuckValue === 'string'
+            ? weekEntry.momBuckValue
+            : '';
+
+        /* Compute totals from entries already in memory. */
+        var weekEarned = 0;
+        var weekSpent = 0;
+        for (var wt = 0; wt < wg.entries.length; wt++) {
+            var txT = wg.entries[wt];
+            if (txT.type === 'earned') weekEarned += txT.amount;
+            else if (txT.type === 'spent') weekSpent += txT.amount;
+        }
+
+        /* Expanded state: newest week in the month is expanded by default;
+           others collapsed. Explicit toggles override. */
+        var isNewestWeekInMonth = (wk === 0);
+        var explicitState = rewardsExpandedWeeks[wg.weekStart];
+        var isExpanded;
+        if (explicitState === true) {
+            isExpanded = true;
+        } else if (explicitState === false) {
+            isExpanded = false;
+        } else {
+            isExpanded = isNewestWeekInMonth;
+        }
+
+        var arrow = isExpanded ? '▾' : '▸';
 
         html +=
-            '<div class="ledger-row">' +
-                '<div class="ledger-info">' +
-                    '<p>' + escapeHtml(tx.description) + '</p>' +
-                    '<span>' + escapeHtml(formatPrettyDateShort(tx.date)) + '</span>' +
-                '</div>' +
-                '<div class="ledger-amount ' + amountClass + '">' +
-                    amountPrefix + tx.amount +
-                '</div>' +
+            '<div class="section-title subtle" style="cursor:pointer;" ' +
+                'onclick="toggleRewardsWeek(\'' + wg.weekStart + '\')">' +
+                '<span>' + arrow + ' ' + escapeHtml(formatWeekLabel(wg.weekStart)) + '</span>' +
             '</div>';
+
+        if (weekCtx || weekMomBuckValue) {
+            html +=
+                '<div class="context-input-card" style="margin-bottom:8px;">';
+
+            if (weekCtx) {
+                html +=
+                    '<label>What\'s Happening This Week</label>' +
+                    '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);' +
+                        (weekMomBuckValue ? ' margin-bottom:8px;' : '') + '">' +
+                        escapeHtml(weekCtx) +
+                    '</div>';
+            }
+
+            if (weekMomBuckValue) {
+                html +=
+                    '<label>1 Mom Buck =</label>' +
+                    '<div style="font-size:0.95rem; font-weight:600; color:var(--text-primary);">' +
+                        escapeHtml(weekMomBuckValue) +
+                    '</div>';
+            }
+
+            html += '</div>';
+        }
+
+        /* Totals summary — always shown. */
+        html +=
+            '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:600; margin-bottom:8px;">' +
+                'Earned +' + weekEarned +
+                ' · Spent -' + weekSpent +
+                ' · ' + wg.entries.length + ' transaction' + (wg.entries.length === 1 ? '' : 's') +
+            '</div>';
+
+        /* Transaction list — only when expanded. No Remove button (read-only). */
+        if (isExpanded) {
+            html += '<div class="ui-card"><div class="ledger-list">';
+            for (var ex = 0; ex < wg.entries.length; ex++) {
+                var tx2 = wg.entries[ex];
+                var isEarned2 = tx2.type === 'earned';
+                var amountClass2 = isEarned2 ? 'plus' : 'minus';
+                var amountPrefix2 = isEarned2 ? '+' : '-';
+
+                html +=
+                    '<div class="ledger-row">' +
+                        '<div class="ledger-info">' +
+                            '<p>' + escapeHtml(tx2.description) + '</p>' +
+                            '<span>' + escapeHtml(formatShortWeekdayDate(tx2.date)) + '</span>' +
+                        '</div>' +
+                        '<div class="ledger-amount ' + amountClass2 + '">' +
+                            amountPrefix2 + tx2.amount +
+                        '</div>' +
+                    '</div>';
+            }
+            html += '</div></div>';
+        }
     }
-    html += '</div></div>';
 
     screen.innerHTML = html;
 }
