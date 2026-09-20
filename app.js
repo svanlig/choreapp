@@ -2782,6 +2782,9 @@ var spendingViewChildId = null;
 var spendingFormState = null;
 var spendingFormRemoveId = null;
 
+/* Which historical weeks are expanded. Keyed by weekStart (YYYY-MM-DD). */
+var spendingExpandedWeeks = {};
+
 /* Month currently being viewed in the Transaction History section.
    null = "follow the newest month that has data". */
 var spendingHistoryMonthKey = null;
