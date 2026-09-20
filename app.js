@@ -3004,7 +3004,7 @@ function renderSpendingLedgerScreen() {
     for (var wk = 0; wk < activeMonth.weeks.length; wk++) {
         var wg = activeMonth.weeks[wk];
 
-        /* Historical weekly context and Mom Buck value come from that
+               /* Historical weekly context and Mom Buck value come from that
            week's own entry in weeklyChores, so editing the current week
            never changes the historical snapshot. */
         var weekEntry = getWeekEntry(wg.weekStart);
@@ -3013,9 +3013,34 @@ function renderSpendingLedgerScreen() {
             ? weekEntry.momBuckValue
             : '';
 
+        /* Compute totals for this week from entries already in memory. */
+        var weekEarned = 0;
+        var weekSpent = 0;
+        for (var wt = 0; wt < wg.entries.length; wt++) {
+            var txT = wg.entries[wt];
+            if (txT.type === 'earned') weekEarned += txT.amount;
+            else if (txT.type === 'spent') weekSpent += txT.amount;
+        }
+
+        /* Expanded state: newest week in the month defaults to expanded,
+           all others default to collapsed. Explicit toggles override. */
+        var isNewestWeekInMonth = (wk === 0);
+        var explicitState = spendingExpandedWeeks[wg.weekStart];
+        var isExpanded;
+        if (explicitState === true) {
+            isExpanded = true;
+        } else if (explicitState === false) {
+            isExpanded = false;
+        } else {
+            isExpanded = isNewestWeekInMonth;
+        }
+
+        var arrow = isExpanded ? '▾' : '▸';
+
         html +=
-            '<div class="section-title" style="margin-top:16px;">' +
-                '<span>' + escapeHtml(formatWeekLabel(wg.weekStart)) + '</span>' +
+            '<div class="section-title" style="margin-top:16px; cursor:pointer;" ' +
+                'onclick="toggleSpendingWeek(\'' + wg.weekStart + '\')">' +
+                '<span>' + arrow + ' ' + escapeHtml(formatWeekLabel(wg.weekStart)) + '</span>' +
             '</div>';
 
         if (weekCtx || weekMomBuckValue) {
@@ -3042,29 +3067,40 @@ function renderSpendingLedgerScreen() {
             html += '</div>';
         }
 
-        html += '<div class="ui-card"><div class="ledger-list">';
-        for (var ex = 0; ex < wg.entries.length; ex++) {
-            var tx2 = wg.entries[ex];
-            var isEarned2 = tx2.type === 'earned';
-            var amountClass2 = isEarned2 ? 'plus' : 'minus';
-            var amountPrefix2 = isEarned2 ? '+' : '-';
+        /* Totals summary — always shown, expanded or collapsed. */
+        html +=
+            '<div style="font-size:0.8rem; color:var(--text-muted); font-weight:600; margin-bottom:8px;">' +
+                'Earned +' + weekEarned +
+                ' · Spent -' + weekSpent +
+                ' · ' + wg.entries.length + ' transaction' + (wg.entries.length === 1 ? '' : 's') +
+            '</div>';
 
-            html +=
-                '<div class="ledger-row">' +
-                    '<div class="ledger-info">' +
-                        '<p>' + escapeHtml(tx2.description) + '</p>' +
-                        '<span>' + escapeHtml(formatPrettyDateShort(tx2.date)) + '</span>' +
-                    '</div>' +
-                    '<div style="display:flex; align-items:center; gap:10px;">' +
-                        '<div class="ledger-amount ' + amountClass2 + '">' +
-                            amountPrefix2 + tx2.amount +
+        /* Only render the transaction list when expanded. */
+        if (isExpanded) {
+            html += '<div class="ui-card"><div class="ledger-list">';
+            for (var ex = 0; ex < wg.entries.length; ex++) {
+                var tx2 = wg.entries[ex];
+                var isEarned2 = tx2.type === 'earned';
+                var amountClass2 = isEarned2 ? 'plus' : 'minus';
+                var amountPrefix2 = isEarned2 ? '+' : '-';
+
+                html +=
+                    '<div class="ledger-row">' +
+                        '<div class="ledger-info">' +
+                            '<p>' + escapeHtml(tx2.description) + '</p>' +
+                            '<span>' + escapeHtml(formatShortWeekdayDate(tx2.date)) + '</span>' +
                         '</div>' +
-                        '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
-                            'onclick="openSpendingRemove(\'' + tx2.id + '\')">Remove</div>' +
-                    '</div>' +
-                '</div>';
+                        '<div style="display:flex; align-items:center; gap:10px;">' +
+                            '<div class="ledger-amount ' + amountClass2 + '">' +
+                                amountPrefix2 + tx2.amount +
+                            '</div>' +
+                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
+                                'onclick="openSpendingRemove(\'' + tx2.id + '\')">Remove</div>' +
+                        '</div>' +
+                    '</div>';
+            }
+            html += '</div></div>';
         }
-        html += '</div></div>';
     }
 
     root.innerHTML = html;
