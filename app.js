@@ -2268,6 +2268,24 @@ function archiveChore(id) {
     renderChoreSetupScreen();
 }
 
+/* Create a new active chore in the current week from an archived template.
+   The archived template itself is not modified. */
+function useArchivedChore(archivedId) {
+    var arc = getArchivedById(archivedId);
+    if (!arc) return;
+
+    var entry = ensureWeekEntry(activeWeekStart);
+    entry.chores.push({
+        id: generateChoreId(),
+        name: arc.name,
+        momBucks: arc.momBucks,
+        assignedChildren: []
+    });
+    saveWeeklyChores(weeklyChoresData);
+
+    renderChoreSetupScreen();
+}
+
 function confirmRemoveChore(id) {
     var entry = getWeekEntry(activeWeekStart);
     if (!entry) return;
