@@ -2995,8 +2995,9 @@ function renderSpendingLedgerScreen() {
                 '<input id="spending-month-picker" type="month" value="' + activeMonthInputValue + '" ' +
                     'onchange="handleSpendingMonthPickerChange(this.value)" ' +
                     'style="border:1px solid var(--text-primary); background:var(--color-white); ' +
-                    'font-family:\'Quicksand\',sans-serif; font-size:0.95rem; font-weight:600; ' +
-                    'color:var(--text-primary); outline:none; padding:4px 8px; border-radius:8px;" />' +
+                    'font-family:\'Quicksand\',sans-serif; font-size:1rem; font-weight:600; ' +
+                    'color:var(--text-primary); outline:none; padding:8px 12px; border-radius:8px; ' +
+                    'min-width:200px;" />' +
             '</div>' +
             '<span class="whimsical-shape star"></span>' +
         '</div>';
