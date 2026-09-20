@@ -3504,6 +3504,32 @@ function getRewardsViewChild() {
     return null;
 }
 
+/* Toggle expanded/collapsed state of one week in the Child Rewards history.
+   Stores explicit true/false (never deletes) so the "newest week expanded
+   by default" fallback does not override a user's collapse choice. */
+function toggleRewardsWeek(weekStart) {
+    if (rewardsExpandedWeeks[weekStart]) {
+        rewardsExpandedWeeks[weekStart] = false;
+    } else {
+        rewardsExpandedWeeks[weekStart] = true;
+    }
+    renderRewardsLedger();
+}
+
+/* Handle month picker changes in the Child Rewards history.
+   value comes in as "YYYY-MM". */
+function handleRewardsMonthPickerChange(value) {
+    if (!value || typeof value !== 'string') return;
+    var parts = value.split('-');
+    if (parts.length !== 2) return;
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    if (isNaN(y) || isNaN(m) || m < 0 || m > 11) return;
+
+    rewardsHistoryMonthKey = y + '-' + pad2(m + 1);
+    renderRewardsLedger();
+}
+
 function renderRewardsLedger() {
     var screen = document.getElementById('screen-rewards');
     if (!screen) return;
