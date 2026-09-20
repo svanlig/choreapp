@@ -1,4 +1,5 @@
 /* ============================================================
+   Add Archive feature to Weekly Chore Slate - worked!!!
    APP.JS — Chore & Reward App
    Features implemented:
      - Parent Hub → Children management
