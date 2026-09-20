@@ -20,6 +20,7 @@ var COMPLETIONS_STORAGE_KEY = 'choreCompletions';
 var LEDGER_STORAGE_KEY = 'momBucksLedger';
 var PARENT_PIN_STORAGE_KEY = 'parentPIN';
 var CALENDAR_STORAGE_KEY = 'calendarEvents';
+var ARCHIVED_CHORES_STORAGE_KEY = 'archivedChores';
 
 var DEFAULT_PARENT_PIN = '1234';
 var PIN_MIN_LENGTH = 4;
