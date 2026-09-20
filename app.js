@@ -512,6 +512,16 @@ function formatPrettyDateShort(ymd) {
     return MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
 }
 
+var SHORT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+var SHORT_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/* "Sat, Sep 19" — display-only short date for transaction rows. */
+function formatShortWeekdayDate(ymd) {
+    var d = parseYmd(ymd);
+    return SHORT_DAY_NAMES[d.getDay()] + ', ' + SHORT_MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
+}
+
 function formatWeekLabel(weekStart) {
     var monday = parseYmd(weekStart);
     var sunday = addDays(monday, 6);
