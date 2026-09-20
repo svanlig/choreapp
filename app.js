@@ -2288,6 +2288,21 @@ function useArchivedChore(archivedId) {
     renderChoreSetupScreen();
 }
 
+/* Permanently delete an archived chore template.
+   This does NOT touch any historical completions or ledger records. */
+function removeArchivedChore(archivedId) {
+    var newList = [];
+    for (var i = 0; i < archivedChoresData.length; i++) {
+        if (archivedChoresData[i].id !== archivedId) {
+            newList.push(archivedChoresData[i]);
+        }
+    }
+    archivedChoresData = newList;
+    saveArchivedChores(archivedChoresData);
+
+    renderChoreSetupScreen();
+}
+
 function confirmRemoveChore(id) {
     var entry = getWeekEntry(activeWeekStart);
     if (!entry) return;
