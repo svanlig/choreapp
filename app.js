@@ -3149,6 +3149,30 @@ function groupWeeksByMonth(groups) {
     return months;
 }
 
+/* Toggle expanded/collapsed state of one week in the Transaction History. */
+function toggleSpendingWeek(weekStart) {
+    if (spendingExpandedWeeks[weekStart]) {
+        delete spendingExpandedWeeks[weekStart];
+    } else {
+        spendingExpandedWeeks[weekStart] = true;
+    }
+    renderSpendingLedgerScreen();
+}
+
+/* Handle month picker changes in Transaction History.
+   value comes in as "YYYY-MM". */
+function handleSpendingMonthPickerChange(value) {
+    if (!value || typeof value !== 'string') return;
+    var parts = value.split('-');
+    if (parts.length !== 2) return;
+    var y = parseInt(parts[0], 10);
+    var m = parseInt(parts[1], 10) - 1;
+    if (isNaN(y) || isNaN(m) || m < 0 || m > 11) return;
+
+    spendingHistoryMonthKey = y + '-' + pad2(m + 1);
+    renderSpendingLedgerScreen();
+}
+
 /* Move the Transaction History view by one month.
    direction: +1 = older, -1 = newer. Bounded to months that have data. */
 function shiftSpendingHistoryMonth(direction) {
