@@ -3038,7 +3038,7 @@ function renderSpendingLedgerScreen() {
         var arrow = isExpanded ? '▾' : '▸';
 
         html +=
-            '<div class="section-title" style="margin-top:16px; cursor:pointer;" ' +
+            '<div class="section-title subtle" style="margin-top:16px; cursor:pointer;" ' +
                 'onclick="toggleSpendingWeek(\'' + wg.weekStart + '\')">' +
                 '<span>' + arrow + ' ' + escapeHtml(formatWeekLabel(wg.weekStart)) + '</span>' +
             '</div>';
