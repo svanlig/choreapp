@@ -2675,6 +2675,33 @@ function renderConfirmChoresScreen() {
     root.innerHTML = html;
 }
 
+/* Mark a pending completion as needing correction by the child.
+   This simply removes the pending completion entirely, which:
+     - awards no Mom Bucks,
+     - lets the child check the chore again on the same day,
+     - removes it from the parent's pending list until resubmitted.
+   Historical confirmed completions and ledger entries are untouched. */
+function markCompletionNeedsCorrection(completionId) {
+    var comp = getCompletionById(completionId);
+    if (!comp) return;
+
+    /* Only pending completions can be sent back. Confirmed ones are
+       already locked and must never be reversed. */
+    if (comp.status !== 'pending') return;
+
+    /* Drop the pending completion. Nothing else is written. */
+    var newCompletions = [];
+    for (var i = 0; i < completionsData.length; i++) {
+        if (completionsData[i].id !== completionId) {
+            newCompletions.push(completionsData[i]);
+        }
+    }
+    completionsData = newCompletions;
+    saveCompletions(completionsData);
+
+    renderConfirmChoresScreen();
+}
+
 function confirmCompletion(completionId) {
     var comp = getCompletionById(completionId);
     if (!comp) return;
