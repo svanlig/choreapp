@@ -2662,10 +2662,13 @@ function renderConfirmChoresScreen() {
                         escapeHtml(formatWeekLabel(comp.weekStart)) +
                     '</div>' +
                 '</div>' +
-                '<div style="display:flex; gap:10px;">' +
-                    '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-green); ' +
-                        'border-color:var(--color-green); color:#fff;" onclick="confirmCompletion(\'' + comp.id + '\')">Confirm</button>' +
-                '</div>' +
+                     '<div style="display:flex; gap:10px;">' +
+                          '<button class="btn-add-chore" style="margin-top:0; flex:1; background:var(--color-green); ' +
+                           'border-color:var(--color-green); color:#fff;" onclick="confirmCompletion(\'' + comp.id + '\')">Confirm</button>' +
+                           '<button class="btn-add-chore" style="margin-top:0; flex:1; background:transparent; ' +
+                           'border-color:var(--color-yellow); color:var(--color-yellow);" ' +
+                           'onclick="markCompletionNeedsCorrection(\'' + comp.id + '\')">Needs Correction</button>' +
+                     '</div>' +
             '</div>';
     }
 
