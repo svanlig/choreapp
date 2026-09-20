@@ -194,6 +194,13 @@ body {
     justify-content: space-between;
 }
 
+.section-title.subtle {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    margin: 16px 0 8px 0;
+    letter-spacing: 0.4px;
+}
+
 /* --- SCOPED TOP SPACING FOR NEWER SCREENS --- */
 #children-root,
 #chore-setup-root,
