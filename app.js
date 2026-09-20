@@ -1964,9 +1964,39 @@ function renderChoreSetupScreen() {
         }
     }
 
-    if (choreFormState !== 'add') {
+        if (choreFormState !== 'add') {
         html +=
             '<button class="btn-add-chore" onclick="openAddChoreForm()">+ Add Chore</button>';
+    }
+
+    /* Archived chore templates — reusable, not tied to any week or child. */
+    if (archivedChoresData.length > 0) {
+        html +=
+            '<div class="section-title" style="margin-top:24px;">' +
+                '<span>Archived Chores</span>' +
+            '</div>';
+
+        for (var ai = 0; ai < archivedChoresData.length; ai++) {
+            var arc = archivedChoresData[ai];
+
+            html +=
+                '<div class="setup-chore-row" style="flex-direction:column; align-items:stretch; gap:8px;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center;">' +
+                        '<div class="setup-chore-info">' +
+                            '<font>' + escapeHtml(arc.name) + '</font>' +
+                            '<span>' + arc.momBucks + ' Mom Bucks</span>' +
+                        '</div>' +
+                        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                            '<div class="control-pill" style="background:var(--color-blue); color:#fff; border-color:var(--color-blue);" ' +
+                                'onclick="useArchivedChore(\'' + arc.id + '\')">Use This Chore</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">' +
+                        'Archived template' +
+                        (arc.archivedAt ? ' · ' + escapeHtml(formatPrettyDateShort(arc.archivedAt)) : '') +
+                    '</div>' +
+                '</div>';
+        }
     }
 
     root.innerHTML = html;
