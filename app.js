@@ -403,6 +403,17 @@ var MONTH_NAMES = [
     'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
+var DAY_NAMES = [
+    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
+];
+
+/* "Saturday, September 20" — weekday name, month name, day-of-month.
+   Uses the user's local date via the standard Date object. */
+function formatPrettyDateLong(date) {
+    return DAY_NAMES[date.getDay()] + ', ' + MONTH_NAMES[date.getMonth()] + ' ' + date.getDate();
+}
+
+
 function formatPrettyDate(date) {
     return MONTH_NAMES[date.getMonth()] + ' ' + date.getDate() + ', ' + date.getFullYear();
 }
