@@ -3,7 +3,7 @@
    Cache-first strategy for the app shell.
    ============================================================ */
 
-var CACHE_NAME = 'mom-bucks-shell-v1';
+var CACHE_NAME = 'mom-bucks-shell-v2';
 
 /* Files that make up the app shell.
    Paths are relative so the SW works whether the app is hosted at
