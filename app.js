@@ -3486,6 +3486,12 @@ function savePin() {
 
 var rewardsViewChildId = null;
 
+/* Child Rewards history view state. Kept separate from the parent's
+   spendingHistoryMonthKey / spendingExpandedWeeks so the two screens
+   don't interfere with each other's month and collapse choices. */
+var rewardsHistoryMonthKey = null;
+var rewardsExpandedWeeks = {};
+
 function getRewardsViewChild() {
     if (rewardsViewChildId) {
         var c = getChildById(rewardsViewChildId);
