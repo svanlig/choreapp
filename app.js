@@ -1986,9 +1986,11 @@ function renderChoreSetupScreen() {
                             '<font>' + escapeHtml(arc.name) + '</font>' +
                             '<span>' + arc.momBucks + ' Mom Bucks</span>' +
                         '</div>' +
-                        '<div style="display:flex; gap:6px; flex-shrink:0;">' +
+                                                '<div style="display:flex; gap:6px; flex-shrink:0;">' +
                             '<div class="control-pill" style="background:var(--color-blue); color:#fff; border-color:var(--color-blue);" ' +
                                 'onclick="useArchivedChore(\'' + arc.id + '\')">Use This Chore</div>' +
+                            '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" ' +
+                                'onclick="removeArchivedChore(\'' + arc.id + '\')">Remove</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="font-size:0.75rem; color:var(--text-muted); font-weight:600;">' +
