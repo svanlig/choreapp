@@ -3184,8 +3184,11 @@ function groupWeeksByMonth(groups) {
 
 /* Toggle expanded/collapsed state of one week in the Transaction History. */
 function toggleSpendingWeek(weekStart) {
+    /* Store explicit true/false. Do not delete the key — deleting it
+       would fall back to the "newest week is expanded" default, which
+       makes the newest week impossible to collapse. */
     if (spendingExpandedWeeks[weekStart]) {
-        delete spendingExpandedWeeks[weekStart];
+        spendingExpandedWeeks[weekStart] = false;
     } else {
         spendingExpandedWeeks[weekStart] = true;
     }
