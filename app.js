@@ -1953,6 +1953,7 @@ function renderChoreSetupScreen() {
                         '</div>' +
                         '<div style="display:flex; gap:6px; flex-shrink:0;">' +
                             '<div class="control-pill" onclick="openEditChoreForm(\'' + chore.id + '\')">Edit</div>' +
+                            '<div class="control-pill" onclick="archiveChore(\'' + chore.id + '\')">Archive</div>' +
                             '<div class="control-pill" style="background:#FC6262; color:#fff; border-color:#FC6262;" onclick="openRemoveChoreConfirm(\'' + chore.id + '\')">Remove</div>' +
                         '</div>' +
                     '</div>' +
